@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+google-genai
+google-adk
+pytest
+pytest-asyncio
+httpx
