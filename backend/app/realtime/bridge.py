@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 from typing import Any
 
 from app.realtime.audio_protocol import AudioFormatError, validate_pcm16_16khz_mono
+from app.realtime.bridge_metrics import BridgeMetrics
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_audio_bytes(event: dict[str, Any] | bytes) -> bytes | None:
@@ -58,7 +62,14 @@ def _extract_text(event: dict[str, Any] | bytes) -> str | None:
     return None
 
 
-async def run_duplex_bridge(websocket: Any, gemini_client: Any, session_id: str) -> None:
+async def run_duplex_bridge(
+    websocket: Any,
+    gemini_client: Any,
+    session_id: str,
+    metrics: BridgeMetrics | None = None,
+) -> BridgeMetrics:
+    if metrics is None:
+        metrics = BridgeMetrics()
     stream = await gemini_client.open_stream(session_id=session_id)
     cancel_signal = asyncio.Event()
 
@@ -79,16 +90,20 @@ async def run_duplex_bridge(websocket: Any, gemini_client: Any, session_id: str)
                 break
 
             if "bytes" in message and message["bytes"] is not None:
-                await stream.send_realtime_audio(message["bytes"])
+                chunk = message["bytes"]
+                await stream.send_realtime_audio(chunk)
+                metrics.record_upstream_audio(len(chunk))
                 continue
 
             if "text" in message and message["text"] is not None:
                 try:
                     payload = json.loads(message["text"])
                 except json.JSONDecodeError as exc:
+                    metrics.record_error()
                     raise AudioFormatError("Invalid websocket JSON payload") from exc
 
                 if not isinstance(payload, dict):
+                    metrics.record_error()
                     raise AudioFormatError("Unsupported websocket payload")
 
                 message_type = payload.get("type")
@@ -107,8 +122,10 @@ async def run_duplex_bridge(websocket: Any, gemini_client: Any, session_id: str)
                     text = payload.get("text", "")
                     if isinstance(text, str) and text.strip():
                         await stream.send_text(text)
+                        metrics.record_upstream_text()
                     continue
 
+                metrics.record_error()
                 raise AudioFormatError(f"Unsupported websocket message type: {message_type}")
 
     async def downstream_task() -> None:
@@ -119,11 +136,13 @@ async def run_duplex_bridge(websocket: Any, gemini_client: Any, session_id: str)
             audio_chunk = _extract_audio_bytes(event)
             if audio_chunk is not None:
                 await websocket.send_bytes(audio_chunk)
+                metrics.record_downstream_audio(len(audio_chunk))
                 continue
 
             text_content = _extract_text(event)
             if text_content:
                 await websocket.send_text(json.dumps({"type": "text", "text": text_content}))
+                metrics.record_downstream_text()
 
     upstream = asyncio.create_task(upstream_task())
     downstream = asyncio.create_task(downstream_task())
@@ -136,6 +155,7 @@ async def run_duplex_bridge(websocket: Any, gemini_client: Any, session_id: str)
     try:
         await _await_duplex()
     except Exception:
+        metrics.record_error()
         for task in (upstream, downstream):
             if not task.done():
                 task.cancel()
@@ -147,3 +167,6 @@ async def run_duplex_bridge(websocket: Any, gemini_client: Any, session_id: str)
                 task.cancel()
         await asyncio.gather(upstream, downstream, return_exceptions=True)
         await stream.close()
+        logger.info("bridge_metrics session=%s %s", session_id, metrics.snapshot())
+
+    return metrics
