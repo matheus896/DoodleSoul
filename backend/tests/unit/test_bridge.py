@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 
 import pytest
@@ -86,6 +87,40 @@ async def test_run_duplex_bridge_forwards_audio_both_directions() -> None:
 
     assert gemini_client.stream.upstream_audio == [b"input-audio"]
     assert websocket.sent_bytes == [b"output-audio"]
+    assert gemini_client.stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_duplex_bridge_forwards_audio_from_adk_snake_case_event() -> None:
+    pcm_chunk = b"\x01\x02\x03\x04"
+    websocket = FakeWebSocket(messages=[{"type": "websocket.disconnect"}])
+    gemini_client = FakeGeminiClient(
+        stream=FakeStream(
+            events=[
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "inline_data": {
+                                    "mime_type": "audio/pcm;rate=24000",
+                                    "data": base64.b64encode(pcm_chunk).decode("ascii"),
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+    )
+
+    await run_duplex_bridge(websocket=websocket, gemini_client=gemini_client, session_id="s1")
+
+    assert websocket.sent_bytes == []
+    assert len(websocket.sent_text) == 1
+    payload = json.loads(websocket.sent_text[0])
+    inline_data = payload["content"]["parts"][0]["inline_data"]
+    assert inline_data["mime_type"] == "audio/pcm;rate=24000"
+    assert inline_data["data"] == base64.b64encode(pcm_chunk).decode("ascii")
     assert gemini_client.stream.closed is True
 
 

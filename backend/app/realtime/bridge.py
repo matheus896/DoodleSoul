@@ -32,10 +32,13 @@ def _extract_audio_bytes(event: dict[str, Any] | bytes) -> bytes | None:
         return None
 
     for part in parts:
-        inline_data = part.get("inlineData") if isinstance(part, dict) else None
+        if not isinstance(part, dict):
+            continue
+        # Accept both JS-style and Python-style key casing for ADK/Live payloads.
+        inline_data = part.get("inlineData") or part.get("inline_data")
         if not isinstance(inline_data, dict):
             continue
-        mime_type = inline_data.get("mimeType", "")
+        mime_type = inline_data.get("mimeType") or inline_data.get("mime_type") or ""
         raw_data = inline_data.get("data")
         if isinstance(raw_data, str) and mime_type.startswith("audio/"):
             try:
@@ -124,6 +127,22 @@ async def run_duplex_bridge(
         async for event in stream.iter_events():
             if cancel_signal.is_set():
                 break
+
+            if isinstance(event, dict) and isinstance(event.get("audio"), (bytes, bytearray)):
+                audio_chunk = bytes(event["audio"])
+                await websocket.send_bytes(audio_chunk)
+                metrics.record_downstream_audio(len(audio_chunk))
+                continue
+
+            if isinstance(event, dict):
+                await websocket.send_text(json.dumps(event))
+                audio_chunk = _extract_audio_bytes(event)
+                if audio_chunk is not None:
+                    metrics.record_downstream_audio(len(audio_chunk))
+                text_content = _extract_text(event)
+                if text_content:
+                    metrics.record_downstream_text()
+                continue
 
             audio_chunk = _extract_audio_bytes(event)
             if audio_chunk is not None:
