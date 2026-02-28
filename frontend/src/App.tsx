@@ -2,18 +2,26 @@ import { useEffect, useRef, useState } from "react";
 
 import { Pcm24kPlayer } from "./audio/pcmPlayer";
 
+type AppWindow = Window & {
+  __animismPlayerMetrics?: () => ReturnType<Pcm24kPlayer["getMetrics"]>;
+};
+
 export default function App() {
   const [status, setStatus] = useState("Conectando");
   const [started, setStarted] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
-  const playerRef = useRef(new Pcm24kPlayer(24000 * 2));
+  const playerRef = useRef(new Pcm24kPlayer(24000 * 2, 24000));
   const schedulerRef = useRef<number | null>(null);
   const nextPlaybackTimeRef = useRef(0);
 
   useEffect(() => {
+    const appWindow = window as AppWindow;
+    appWindow.__animismPlayerMetrics = () => playerRef.current.getMetrics();
+
     return () => {
+      delete appWindow.__animismPlayerMetrics;
       if (schedulerRef.current !== null) {
         window.clearInterval(schedulerRef.current);
       }
@@ -130,6 +138,7 @@ export default function App() {
       };
 
       websocket.onclose = () => {
+        console.info("PlayerMetrics", playerRef.current.getMetrics());
         if (status !== "Erro") {
           setStatus("Erro");
         }

@@ -63,6 +63,13 @@ class FakeGeminiClient:
         return self.stream
 
 
+class BlockingStream(FakeStream):
+    async def _events(self):
+        while True:
+            await asyncio.sleep(3600)
+            yield {}
+
+
 class DisconnectingWebSocket(FakeWebSocket):
     async def receive(self):
         raise RuntimeError("receive failed")
@@ -127,6 +134,36 @@ async def test_run_duplex_bridge_cancels_sibling_and_closes_stream_on_failure() 
 
     with pytest.raises(RuntimeError):
         await run_duplex_bridge(websocket=websocket, gemini_client=gemini_client, session_id="s1")
+
+    assert stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_duplex_bridge_emits_metrics_to_uvicorn_logger(caplog) -> None:
+    websocket = FakeWebSocket(
+        messages=[{"bytes": b"input-audio"}, {"type": "websocket.disconnect"}]
+    )
+    gemini_client = FakeGeminiClient(stream=FakeStream(events=[{"audio": b"output-audio"}]))
+
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        await run_duplex_bridge(websocket=websocket, gemini_client=gemini_client, session_id="s1")
+
+    assert any(
+        record.name == "uvicorn.error" and "bridge_metrics session=s1" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_duplex_bridge_cancels_blocked_downstream_on_disconnect() -> None:
+    websocket = FakeWebSocket(messages=[{"type": "websocket.disconnect"}])
+    stream = BlockingStream()
+    gemini_client = FakeGeminiClient(stream=stream)
+
+    await asyncio.wait_for(
+        run_duplex_bridge(websocket=websocket, gemini_client=gemini_client, session_id="s1"),
+        timeout=0.5,
+    )
 
     assert stream.closed is True
 

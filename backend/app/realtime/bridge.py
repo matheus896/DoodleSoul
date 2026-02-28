@@ -10,6 +10,7 @@ from app.realtime.audio_protocol import AudioFormatError, validate_pcm16_16khz_m
 from app.realtime.bridge_metrics import BridgeMetrics
 
 logger = logging.getLogger(__name__)
+uvicorn_logger = logging.getLogger("uvicorn.error")
 
 
 def _extract_audio_bytes(event: dict[str, Any] | bytes) -> bytes | None:
@@ -72,15 +73,6 @@ async def run_duplex_bridge(
         metrics = BridgeMetrics()
     stream = await gemini_client.open_stream(session_id=session_id)
     cancel_signal = asyncio.Event()
-
-    def _cancel_other(task: asyncio.Task[Any]) -> None:
-        if cancel_signal.is_set():
-            return
-        cancel_signal.set()
-        if task.cancelled():
-            return
-        if task.exception() is not None:
-            return
 
     async def upstream_task() -> None:
         while True:
@@ -146,11 +138,25 @@ async def run_duplex_bridge(
 
     upstream = asyncio.create_task(upstream_task())
     downstream = asyncio.create_task(downstream_task())
-    upstream.add_done_callback(lambda _: _cancel_other(upstream))
-    downstream.add_done_callback(lambda _: _cancel_other(downstream))
 
     async def _await_duplex() -> None:
-        await asyncio.gather(upstream, downstream)
+        done, pending = await asyncio.wait(
+            {upstream, downstream},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        cancel_signal.set()
+        for task in pending:
+            task.cancel()
+
+        await asyncio.gather(*pending, return_exceptions=True)
+
+        for task in done:
+            if task.cancelled():
+                continue
+            exception = task.exception()
+            if exception is not None:
+                raise exception
 
     try:
         await _await_duplex()
@@ -167,6 +173,9 @@ async def run_duplex_bridge(
                 task.cancel()
         await asyncio.gather(upstream, downstream, return_exceptions=True)
         await stream.close()
-        logger.info("bridge_metrics session=%s %s", session_id, metrics.snapshot())
+        snapshot = metrics.snapshot()
+        logger.info("bridge_metrics session=%s %s", session_id, snapshot)
+        if uvicorn_logger is not logger:
+            uvicorn_logger.info("bridge_metrics session=%s %s", session_id, snapshot)
 
     return metrics
