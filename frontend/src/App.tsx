@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { extractPcmAudioChunksFromAdkEvent } from "./audio/adkEventAudio";
 import { decodePcm16StreamChunk } from "./audio/pcm16Stream";
+import { derivePersonaFromDrawing } from "./session/personaDerivation";
 import {
   buildLiveWebSocketUrl,
   requestSessionStart,
@@ -22,10 +23,15 @@ type AppWindow = Window & {
   __animismPlayerMetrics?: () => PlaybackMetrics;
 };
 
+const STARTUP_DRAWING_PLACEHOLDER_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQfM9tYAAAAASUVORK5CYII=";
+
 export default function App() {
   const [status, setStatus] = useState("Conectando");
   const [started, setStarted] = useState(false);
   const [caregiverConsent, setCaregiverConsent] = useState(false);
+  const [childName, setChildName] = useState("");
+  const [initialGreeting, setInitialGreeting] = useState("");
   const [actionMessage, setActionMessage] = useState("");
 
   const captureContextRef = useRef<AudioContext | null>(null);
@@ -90,12 +96,29 @@ export default function App() {
       setStarted(true);
       setStatus("Conectando");
       setActionMessage("");
+      setInitialGreeting("");
 
       const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
       const wsUrlTemplate =
         (import.meta.env.VITE_WS_URL_TEMPLATE as string | undefined) ??
         (import.meta.env.VITE_WS_URL as string | undefined);
       const sessionId = await requestSessionStart(apiBaseUrl);
+      const normalizedChildName = childName.trim();
+      try {
+        const personaResult = await derivePersonaFromDrawing({
+          sessionId,
+          drawingImageBase64: STARTUP_DRAWING_PLACEHOLDER_BASE64,
+          drawingMimeType: "image/png",
+          childContext: normalizedChildName
+            ? { childName: normalizedChildName }
+            : undefined,
+          apiBaseUrl,
+        });
+        setInitialGreeting(personaResult.greetingText);
+      } catch {
+        // Keep startup resilient even if derivation service is temporarily unavailable.
+        setInitialGreeting("Oi, vamos brincar juntos!");
+      }
       const wsUrl = buildLiveWebSocketUrl({
         sessionId,
         apiBaseUrl,
@@ -244,6 +267,14 @@ export default function App() {
       <h1>A(I)nimism Studio</h1>
       <p aria-live="polite">Status: {status}</p>
       <label>
+        Nome da crianca (opcional)
+        <input
+          type="text"
+          value={childName}
+          onChange={(event) => setChildName(event.target.value)}
+        />
+      </label>
+      <label>
         <input
           type="checkbox"
           checked={caregiverConsent}
@@ -256,6 +287,9 @@ export default function App() {
         />
         {" "}Consentimento do cuidador confirmado
       </label>
+      {initialGreeting && (
+        <p aria-live="polite">Saudacao inicial: {initialGreeting}</p>
+      )}
       {actionMessage && <p role="alert">{actionMessage}</p>}
       <button
         onClick={() => void start()}

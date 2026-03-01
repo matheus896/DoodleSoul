@@ -5,6 +5,7 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
     const globalAny = window as unknown as {
       __mockWebSocketSent: Array<ArrayBuffer | string>;
       __mockWebSocketUrls: string[];
+      __mockFetchCalls: Array<{ url: string; body: unknown }>;
       __emitWorkletChunk: (() => void) | null;
       __mockSocketMode: "open" | "error";
     };
@@ -12,6 +13,7 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
     globalAny.__mockSocketMode = mockMode;
     globalAny.__mockWebSocketSent = [];
     globalAny.__mockWebSocketUrls = [];
+    globalAny.__mockFetchCalls = [];
     globalAny.__emitWorkletChunk = null;
 
     class MockAudioContext {
@@ -130,17 +132,44 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
       writable: true
     });
     Object.defineProperty(window, "fetch", {
-      value: async () => ({
-        ok: true,
-        json: async () => ({
-          status: "ok",
-          data: {
-            session_id: "session-e2e-123",
-            consent_captured: true,
-            consent_captured_at: "2026-03-01T00:00:00Z"
-          }
-        })
-      }),
+      value: async (url: string, init?: RequestInit) => {
+        const parsedBody = init?.body
+          ? JSON.parse(String(init.body))
+          : null;
+        globalAny.__mockFetchCalls.push({
+          url,
+          body: parsedBody,
+        });
+
+        if (url.includes("/persona/derive")) {
+          return {
+            ok: true,
+            json: async () => ({
+              status: "ok",
+              data: {
+                session_id: "session-e2e-123",
+                persona_source: "drawing_derived",
+                fallback_applied: false,
+                voice_traits: ["playful"],
+                personality_traits: ["kind"],
+                greeting_text: "Oi Luna, sou seu amigo do desenho!"
+              }
+            })
+          };
+        }
+
+        return {
+          ok: true,
+          json: async () => ({
+            status: "ok",
+            data: {
+              session_id: "session-e2e-123",
+              consent_captured: true,
+              consent_captured_at: "2026-03-01T00:00:00Z"
+            }
+          })
+        };
+      },
       writable: true
     });
 
@@ -158,9 +187,11 @@ test("start flow transitions to live state", async ({ page }) => {
   await installMediaAndSocketMocks(page, "open");
   await page.goto("/");
 
+  await page.getByLabel("Nome da crianca (opcional)").fill("Luna");
   await page.getByRole("checkbox", { name: "Consentimento do cuidador confirmado" }).check();
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByText("Status: Vivo")).toBeVisible();
+  await expect(page.getByText("Saudacao inicial: Oi Luna, sou seu amigo do desenho!")).toBeVisible();
 
   await page.evaluate(() => {
     (window as unknown as { __emitWorkletChunk: (() => void) | null }).__emitWorkletChunk?.();
@@ -172,13 +203,20 @@ test("start flow transitions to live state", async ({ page }) => {
   const wsUrls = await page.evaluate(() => {
     return (window as unknown as { __mockWebSocketUrls: string[] }).__mockWebSocketUrls;
   });
+  const fetchCalls = await page.evaluate(() => {
+    return (window as unknown as {
+      __mockFetchCalls: Array<{ url: string; body: { child_context?: { child_name?: string } } }>;
+    }).__mockFetchCalls;
+  });
   const liveWsUrls = wsUrls.filter((url) => url.includes("/ws/live/"));
+  const personaCall = fetchCalls.find((call) => call.url.includes("/persona/derive"));
 
   expect(sentPayloads.length).toBe(2);
   expect(typeof sentPayloads[0]).toBe("string");
   expect(liveWsUrls.some((url) => url.includes("/ws/live/session-e2e-123"))).toBe(
     true
   );
+  expect(personaCall?.body.child_context?.child_name).toBe("Luna");
 });
 
 
