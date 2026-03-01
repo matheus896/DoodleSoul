@@ -187,11 +187,11 @@ test("start flow transitions to live state", async ({ page }) => {
   await installMediaAndSocketMocks(page, "open");
   await page.goto("/");
 
-  await page.getByLabel("Nome da crianca (opcional)").fill("Luna");
-  await page.getByRole("checkbox", { name: "Consentimento do cuidador confirmado" }).check();
+  await page.getByLabel("Child's Name (optional)").fill("Luna");
+  await page.getByRole("checkbox", { name: "Caregiver consent confirmed" }).check();
   await page.getByRole("button", { name: "Start" }).click();
-  await expect(page.getByText("Status: Vivo")).toBeVisible();
-  await expect(page.getByText("Saudacao inicial: Oi Luna, sou seu amigo do desenho!")).toBeVisible();
+  await expect(page.getByText("Status: Ready!")).toBeVisible();
+  await expect(page.getByText("Greeting: Oi Luna, sou seu amigo do desenho!")).toBeVisible();
 
   await page.evaluate(() => {
     (window as unknown as { __emitWorkletChunk: (() => void) | null }).__emitWorkletChunk?.();
@@ -224,9 +224,10 @@ test("start flow transitions to error state on websocket failure", async ({ page
   await installMediaAndSocketMocks(page, "error");
   await page.goto("/");
 
-  await page.getByRole("checkbox", { name: "Consentimento do cuidador confirmado" }).check();
+  await page.getByRole("checkbox", { name: "Caregiver consent confirmed" }).check();
   await page.getByRole("button", { name: "Start" }).click();
-  await expect(page.getByText("Status: Erro")).toBeVisible();
+  await expect(page.getByText("Status: Error")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
 });
 
 
@@ -235,8 +236,8 @@ test("start flow blocks when consent is not confirmed", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Start" }).click();
-  await expect(page.getByText("Status: Erro")).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText("consentimento");
+  await expect(page.getByText("Status: Error")).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("consent");
 
   const wsUrls = await page.evaluate(() => {
     return (window as unknown as { __mockWebSocketUrls: string[] }).__mockWebSocketUrls;

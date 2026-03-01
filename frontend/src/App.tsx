@@ -19,16 +19,27 @@ export interface PlaybackMetrics {
   workletTotalRead: number;
 }
 
+export type AppState = "idle" | "starting" | "deriving_persona" | "connecting" | "ready" | "error";
+
+const stateText: Record<AppState, string> = {
+  idle: "Waiting to start...",
+  starting: "Starting session...",
+  deriving_persona: "Creating magic...",
+  connecting: "Connecting...",
+  ready: "Ready!",
+  error: "Error"
+};
+
 type AppWindow = Window & {
   __animismPlayerMetrics?: () => PlaybackMetrics;
+  __animismSetupMetrics?: { setupTimeMs: number };
 };
 
 const STARTUP_DRAWING_PLACEHOLDER_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQfM9tYAAAAASUVORK5CYII=";
 
 export default function App() {
-  const [status, setStatus] = useState("Conectando");
-  const [started, setStarted] = useState(false);
+  const [appState, setAppState] = useState<AppState>("idle");
   const [caregiverConsent, setCaregiverConsent] = useState(false);
   const [childName, setChildName] = useState("");
   const [initialGreeting, setInitialGreeting] = useState("");
@@ -81,20 +92,21 @@ export default function App() {
   };
 
   const start = async () => {
-    if (started) {
+    if (appState !== "idle" && appState !== "error") {
       return;
     }
 
     const consentValidation = validateConsentForStart(caregiverConsent);
     if (!consentValidation.ok) {
-      setStatus("Erro");
+      setAppState("error");
       setActionMessage(consentValidation.message);
       return;
     }
 
+    const startTime = performance.now();
+
     try {
-      setStarted(true);
-      setStatus("Conectando");
+      setAppState("starting");
       setActionMessage("");
       setInitialGreeting("");
 
@@ -104,6 +116,9 @@ export default function App() {
         (import.meta.env.VITE_WS_URL as string | undefined);
       const sessionId = await requestSessionStart(apiBaseUrl);
       const normalizedChildName = childName.trim();
+
+      setAppState("deriving_persona");
+
       try {
         const personaResult = await derivePersonaFromDrawing({
           sessionId,
@@ -124,6 +139,8 @@ export default function App() {
         apiBaseUrl,
         wsUrlTemplate,
       });
+
+      setAppState("connecting");
 
       const captureContext = new AudioContext();
       captureContextRef.current = captureContext;
@@ -207,7 +224,10 @@ export default function App() {
       };
 
       websocket.onopen = () => {
-        setStatus("Vivo");
+        setAppState("ready");
+        const setupTimeMs = performance.now() - startTime;
+        (window as AppWindow).__animismSetupMetrics = { setupTimeMs };
+        console.info("Setup metrics:", { setupTimeMs });
       };
 
       websocket.onmessage = (event: MessageEvent<ArrayBuffer | string>) => {
@@ -241,8 +261,8 @@ export default function App() {
       };
 
       websocket.onerror = () => {
-        setStatus("Erro");
-        setActionMessage("Falha na conexao em tempo real. Tente novamente.");
+        setAppState("error");
+        setActionMessage("Real-time connection failed. Please retry.");
       };
 
       websocket.onclose = () => {
@@ -250,52 +270,77 @@ export default function App() {
         setTimeout(() => {
           console.info("PlaybackMetrics", { ...metricsRef.current });
         }, 100);
-        if (status !== "Erro") {
-          setStatus("Erro");
-          setActionMessage("Sessao encerrada. Clique em Start para tentar novamente.");
-        }
+        setAppState((prev) => {
+          if (prev !== "error") {
+            setActionMessage("Session ended. Click Retry to connect again.");
+          }
+          return "error";
+        });
       };
     } catch {
-      setStatus("Erro");
-      setStarted(false);
-      setActionMessage("Nao foi possivel iniciar a sessao. Verifique o consentimento e tente novamente.");
+      setAppState("error");
+      setActionMessage("Could not start session. Verify consent and try again.");
     }
   };
 
+  const isLoading = appState !== "idle" && appState !== "ready" && appState !== "error";
+
   return (
-    <main>
-      <h1>A(I)nimism Studio</h1>
-      <p aria-live="polite">Status: {status}</p>
-      <label>
-        Nome da crianca (opcional)
-        <input
-          type="text"
-          value={childName}
-          onChange={(event) => setChildName(event.target.value)}
-        />
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          checked={caregiverConsent}
-          onChange={(event) => {
-            setCaregiverConsent(event.target.checked);
-            if (actionMessage) {
-              setActionMessage("");
-            }
-          }}
-        />
-        {" "}Consentimento do cuidador confirmado
-      </label>
-      {initialGreeting && (
-        <p aria-live="polite">Saudacao inicial: {initialGreeting}</p>
-      )}
-      {actionMessage && <p role="alert">{actionMessage}</p>}
+    <main className="p-8 max-w-md mx-auto bg-indigo-50 min-h-screen font-sans text-indigo-950 font-medium">
+      <h1 className="text-3xl mb-6 font-bold text-indigo-600 drop-shadow-sm">A(I)nimism Studio</h1>
+
+      <div className="bg-white p-6 rounded-2xl shadow-[4px_4px_0px_0px_rgba(79,70,229,0.2)] border-2 border-indigo-200 mb-6 transition-all duration-300">
+        <div className="flex items-center gap-3 mb-4">
+          <p aria-live="polite" className="text-lg flex-1">Status: {stateText[appState]}</p>
+          {isLoading && (
+            <div
+              aria-busy="true"
+              className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"
+            ></div>
+          )}
+        </div>
+
+        <label className="block mb-4">
+          <span className="block mb-1 text-indigo-800">Child's Name (optional)</span>
+          <input
+            className="w-full px-4 py-2 rounded-xl border-2 border-indigo-100 focus:border-indigo-400 focus:ring-0 outline-none transition-colors"
+            type="text"
+            value={childName}
+            onChange={(event) => setChildName(event.target.value)}
+          />
+        </label>
+        <label className="flex items-center gap-2 mb-4 bg-indigo-50 p-3 rounded-xl border border-indigo-100 cursor-pointer hover:bg-indigo-100 transition-colors">
+          <input
+            className="w-5 h-5 text-indigo-600 rounded-md focus:ring-indigo-500 border-indigo-300"
+            type="checkbox"
+            checked={caregiverConsent}
+            onChange={(event) => {
+              setCaregiverConsent(event.target.checked);
+              if (actionMessage) {
+                setActionMessage("");
+              }
+            }}
+          />
+          <span className="text-indigo-800">Caregiver consent confirmed</span>
+        </label>
+        {initialGreeting && (
+          <p aria-live="polite" className="mt-4 p-4 bg-orange-50 text-orange-800 rounded-xl border border-orange-200 animate-pulse">
+            Greeting: {initialGreeting}
+          </p>
+        )}
+        {actionMessage && (
+          <p role="alert" className="mt-4 p-4 bg-red-50 text-red-800 rounded-xl border border-red-200 font-semibold">
+            {actionMessage}
+          </p>
+        )}
+      </div>
+
       <button
+        className="w-full py-4 bg-orange-500 hover:bg-orange-600 disabled:bg-indigo-200 disabled:cursor-not-allowed text-white text-xl font-bold rounded-2xl shadow-[0px_4px_0px_0px_#c2410c] active:shadow-none active:translate-y-1 transition-all"
         onClick={() => void start()}
-        disabled={started && status === "Vivo"}
+        disabled={isLoading || appState === "ready"}
       >
-        Start
+        {appState === "error" ? "Retry" : "Start"}
       </button>
     </main>
   );
