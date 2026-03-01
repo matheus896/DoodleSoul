@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { extractPcmAudioChunksFromAdkEvent } from "./audio/adkEventAudio";
 import { decodePcm16StreamChunk } from "./audio/pcm16Stream";
+import {
+  buildLiveWebSocketUrl,
+  requestSessionStart,
+  validateConsentForStart,
+} from "./session/startSession";
 
 export interface PlaybackMetrics {
   enqueuedChunks: number;
@@ -20,6 +25,8 @@ type AppWindow = Window & {
 export default function App() {
   const [status, setStatus] = useState("Conectando");
   const [started, setStarted] = useState(false);
+  const [caregiverConsent, setCaregiverConsent] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
 
   const captureContextRef = useRef<AudioContext | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
@@ -72,9 +79,28 @@ export default function App() {
       return;
     }
 
+    const consentValidation = validateConsentForStart(caregiverConsent);
+    if (!consentValidation.ok) {
+      setStatus("Erro");
+      setActionMessage(consentValidation.message);
+      return;
+    }
+
     try {
       setStarted(true);
       setStatus("Conectando");
+      setActionMessage("");
+
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+      const wsUrlTemplate =
+        (import.meta.env.VITE_WS_URL_TEMPLATE as string | undefined) ??
+        (import.meta.env.VITE_WS_URL as string | undefined);
+      const sessionId = await requestSessionStart(apiBaseUrl);
+      const wsUrl = buildLiveWebSocketUrl({
+        sessionId,
+        apiBaseUrl,
+        wsUrlTemplate,
+      });
 
       const captureContext = new AudioContext();
       captureContextRef.current = captureContext;
@@ -111,12 +137,6 @@ export default function App() {
           metricsRef.current.workletTotalRead = m.totalRead;
         }
       };
-
-      const wsUrl = import.meta.env.VITE_WS_URL as string | undefined;
-      if (!wsUrl) {
-        setStatus("Vivo");
-        return;
-      }
 
       await captureContext.audioWorklet.addModule(
         new URL("./audio/worklets/capture-worklet.ts", import.meta.url)
@@ -199,6 +219,7 @@ export default function App() {
 
       websocket.onerror = () => {
         setStatus("Erro");
+        setActionMessage("Falha na conexao em tempo real. Tente novamente.");
       };
 
       websocket.onclose = () => {
@@ -208,11 +229,13 @@ export default function App() {
         }, 100);
         if (status !== "Erro") {
           setStatus("Erro");
+          setActionMessage("Sessao encerrada. Clique em Start para tentar novamente.");
         }
       };
     } catch {
       setStatus("Erro");
       setStarted(false);
+      setActionMessage("Nao foi possivel iniciar a sessao. Verifique o consentimento e tente novamente.");
     }
   };
 
@@ -220,6 +243,20 @@ export default function App() {
     <main>
       <h1>A(I)nimism Studio</h1>
       <p aria-live="polite">Status: {status}</p>
+      <label>
+        <input
+          type="checkbox"
+          checked={caregiverConsent}
+          onChange={(event) => {
+            setCaregiverConsent(event.target.checked);
+            if (actionMessage) {
+              setActionMessage("");
+            }
+          }}
+        />
+        {" "}Consentimento do cuidador confirmado
+      </label>
+      {actionMessage && <p role="alert">{actionMessage}</p>}
       <button
         onClick={() => void start()}
         disabled={started && status === "Vivo"}

@@ -4,12 +4,14 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
   await page.addInitScript((mockMode) => {
     const globalAny = window as unknown as {
       __mockWebSocketSent: Array<ArrayBuffer | string>;
+      __mockWebSocketUrls: string[];
       __emitWorkletChunk: (() => void) | null;
       __mockSocketMode: "open" | "error";
     };
 
     globalAny.__mockSocketMode = mockMode;
     globalAny.__mockWebSocketSent = [];
+    globalAny.__mockWebSocketUrls = [];
     globalAny.__emitWorkletChunk = null;
 
     class MockAudioContext {
@@ -89,6 +91,7 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
       public onclose: (() => void) | null = null;
 
       constructor(_url: string) {
+        globalAny.__mockWebSocketUrls.push(_url);
         queueMicrotask(() => {
           if (globalAny.__mockSocketMode === "error") {
             this.readyState = MockWebSocket.CLOSED;
@@ -126,6 +129,20 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
       value: MockWebSocket,
       writable: true
     });
+    Object.defineProperty(window, "fetch", {
+      value: async () => ({
+        ok: true,
+        json: async () => ({
+          status: "ok",
+          data: {
+            session_id: "session-e2e-123",
+            consent_captured: true,
+            consent_captured_at: "2026-03-01T00:00:00Z"
+          }
+        })
+      }),
+      writable: true
+    });
 
     Object.defineProperty(navigator, "mediaDevices", {
       value: {
@@ -141,6 +158,7 @@ test("start flow transitions to live state", async ({ page }) => {
   await installMediaAndSocketMocks(page, "open");
   await page.goto("/");
 
+  await page.getByRole("checkbox", { name: "Consentimento do cuidador confirmado" }).check();
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByText("Status: Vivo")).toBeVisible();
 
@@ -151,9 +169,16 @@ test("start flow transitions to live state", async ({ page }) => {
   const sentPayloads = await page.evaluate(() => {
     return (window as unknown as { __mockWebSocketSent: Array<ArrayBuffer | string> }).__mockWebSocketSent;
   });
+  const wsUrls = await page.evaluate(() => {
+    return (window as unknown as { __mockWebSocketUrls: string[] }).__mockWebSocketUrls;
+  });
+  const liveWsUrls = wsUrls.filter((url) => url.includes("/ws/live/"));
 
   expect(sentPayloads.length).toBe(2);
   expect(typeof sentPayloads[0]).toBe("string");
+  expect(liveWsUrls.some((url) => url.includes("/ws/live/session-e2e-123"))).toBe(
+    true
+  );
 });
 
 
@@ -161,6 +186,23 @@ test("start flow transitions to error state on websocket failure", async ({ page
   await installMediaAndSocketMocks(page, "error");
   await page.goto("/");
 
+  await page.getByRole("checkbox", { name: "Consentimento do cuidador confirmado" }).check();
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByText("Status: Erro")).toBeVisible();
+});
+
+
+test("start flow blocks when consent is not confirmed", async ({ page }) => {
+  await installMediaAndSocketMocks(page, "open");
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByText("Status: Erro")).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("consentimento");
+
+  const wsUrls = await page.evaluate(() => {
+    return (window as unknown as { __mockWebSocketUrls: string[] }).__mockWebSocketUrls;
+  });
+  const liveWsUrls = wsUrls.filter((url) => url.includes("/ws/live/"));
+  expect(liveWsUrls).toHaveLength(0);
 });
