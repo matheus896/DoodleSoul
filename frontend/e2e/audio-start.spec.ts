@@ -51,23 +51,30 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
 
     class MockAudioWorkletNode {
       public port = {
-        onmessage: null as ((event: MessageEvent) => void) | null
+        onmessage: null as ((event: MessageEvent) => void) | null,
+        postMessage: (_data: unknown, _transfer?: Transferable[]) => undefined
       };
 
-      constructor() {
-        globalAny.__emitWorkletChunk = () => {
-          this.port.onmessage?.(
-            {
-              data: {
-                kind: "pcm16",
-                sampleRate: 16000,
-                channels: 1,
-                encoding: "pcm_s16le",
-                data: new Int16Array([1, 2, 3, 4]).buffer
-              }
-            } as MessageEvent
-          );
-        };
+      constructor(_context: unknown, name?: string) {
+        if (name === "capture-worklet") {
+          globalAny.__emitWorkletChunk = () => {
+            this.port.onmessage?.(
+              {
+                data: {
+                  kind: "pcm16",
+                  sampleRate: 16000,
+                  channels: 1,
+                  encoding: "pcm_s16le",
+                  data: new Int16Array([1, 2, 3, 4]).buffer
+                }
+              } as MessageEvent
+            );
+          };
+        }
+      }
+
+      connect() {
+        return undefined;
       }
     }
 

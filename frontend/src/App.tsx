@@ -2,70 +2,69 @@ import { useEffect, useRef, useState } from "react";
 
 import { extractPcmAudioChunksFromAdkEvent } from "./audio/adkEventAudio";
 import { decodePcm16StreamChunk } from "./audio/pcm16Stream";
-import { Pcm24kPlayer } from "./audio/pcmPlayer";
+
+export interface PlaybackMetrics {
+  enqueuedChunks: number;
+  totalEnqueuedSamples: number;
+  workletBufferedSamples: number;
+  workletUnderflowFrames: number;
+  workletOverflowSamples: number;
+  workletTotalWritten: number;
+  workletTotalRead: number;
+}
 
 type AppWindow = Window & {
-  __animismPlayerMetrics?: () => ReturnType<Pcm24kPlayer["getMetrics"]>;
+  __animismPlayerMetrics?: () => PlaybackMetrics;
 };
 
 export default function App() {
   const [status, setStatus] = useState("Conectando");
   const [started, setStarted] = useState(false);
 
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const captureContextRef = useRef<AudioContext | null>(null);
+  const playbackContextRef = useRef<AudioContext | null>(null);
+  const playbackNodeRef = useRef<AudioWorkletNode | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
-  const playerRef = useRef(new Pcm24kPlayer(24000 * 2, 24000));
   const downstreamCarryRef = useRef<Uint8Array>(new Uint8Array(0));
-  const downstreamSampleRateRef = useRef(24000);
-  const schedulerRef = useRef<number | null>(null);
-  const nextPlaybackTimeRef = useRef(0);
+
+  const metricsRef = useRef<PlaybackMetrics>({
+    enqueuedChunks: 0,
+    totalEnqueuedSamples: 0,
+    workletBufferedSamples: 0,
+    workletUnderflowFrames: 0,
+    workletOverflowSamples: 0,
+    workletTotalWritten: 0,
+    workletTotalRead: 0,
+  });
 
   useEffect(() => {
     const appWindow = window as AppWindow;
-    appWindow.__animismPlayerMetrics = () => playerRef.current.getMetrics();
+    appWindow.__animismPlayerMetrics = () => {
+      playbackNodeRef.current?.port.postMessage({ command: "getMetrics" });
+      return { ...metricsRef.current };
+    };
 
     return () => {
       delete appWindow.__animismPlayerMetrics;
-      if (schedulerRef.current !== null) {
-        window.clearInterval(schedulerRef.current);
-      }
       websocketRef.current?.close();
-      void audioContextRef.current?.close();
+      void captureContextRef.current?.close();
+      void playbackContextRef.current?.close();
     };
   }, []);
 
-  const ensurePlaybackScheduler = (context: AudioContext) => {
-    if (schedulerRef.current !== null) {
+  const sendSamplesToWorklet = (samples: Int16Array) => {
+    const node = playbackNodeRef.current;
+    if (!node || samples.length === 0) {
       return;
     }
+    const copy = samples.buffer.slice(
+      samples.byteOffset,
+      samples.byteOffset + samples.byteLength
+    );
+    node.port.postMessage(copy, [copy]);
 
-    schedulerRef.current = window.setInterval(() => {
-      const playbackRate = downstreamSampleRateRef.current;
-      const pullSamples = Math.max(1, Math.round(playbackRate / 50));
-      const chunk = playerRef.current.pullChunk(pullSamples);
-      if (chunk.length === 0) {
-        return;
-      }
-
-      const output = new Float32Array(chunk.length);
-      for (let index = 0; index < chunk.length; index += 1) {
-        output[index] = (chunk[index] ?? 0) / 32768;
-      }
-
-      const buffer = context.createBuffer(1, output.length, playbackRate);
-      buffer.copyToChannel(output, 0);
-
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(context.destination);
-
-      const now = context.currentTime;
-      if (nextPlaybackTimeRef.current < now) {
-        nextPlaybackTimeRef.current = now;
-      }
-      source.start(nextPlaybackTimeRef.current);
-      nextPlaybackTimeRef.current += buffer.duration;
-    }, 20);
+    metricsRef.current.enqueuedChunks += 1;
+    metricsRef.current.totalEnqueuedSamples += samples.length;
   };
 
   const start = async () => {
@@ -77,9 +76,41 @@ export default function App() {
       setStarted(true);
       setStatus("Conectando");
 
-      const context = new AudioContext();
-      audioContextRef.current = context;
-      await context.resume();
+      const captureContext = new AudioContext();
+      captureContextRef.current = captureContext;
+      await captureContext.resume();
+
+      const playbackContext = new AudioContext({ sampleRate: 24000 });
+      playbackContextRef.current = playbackContext;
+      await playbackContext.resume();
+
+      await playbackContext.audioWorklet.addModule(
+        new URL("./audio/worklets/pcm-playback-worklet.ts", import.meta.url)
+      );
+      const playbackNode = new AudioWorkletNode(
+        playbackContext,
+        "pcm-playback-worklet"
+      );
+      playbackNode.connect(playbackContext.destination);
+      playbackNodeRef.current = playbackNode;
+
+      playbackNode.port.onmessage = (event: MessageEvent) => {
+        const data = event.data as { type?: string } | undefined;
+        if (data?.type === "metrics") {
+          const m = data as unknown as {
+            bufferedSamples: number;
+            underflowFrames: number;
+            overflowSamples: number;
+            totalWritten: number;
+            totalRead: number;
+          };
+          metricsRef.current.workletBufferedSamples = m.bufferedSamples;
+          metricsRef.current.workletUnderflowFrames = m.underflowFrames;
+          metricsRef.current.workletOverflowSamples = m.overflowSamples;
+          metricsRef.current.workletTotalWritten = m.totalWritten;
+          metricsRef.current.workletTotalRead = m.totalRead;
+        }
+      };
 
       const wsUrl = import.meta.env.VITE_WS_URL as string | undefined;
       if (!wsUrl) {
@@ -87,19 +118,21 @@ export default function App() {
         return;
       }
 
-      await context.audioWorklet.addModule(new URL("./audio/worklets/capture-worklet.ts", import.meta.url));
+      await captureContext.audioWorklet.addModule(
+        new URL("./audio/worklets/capture-worklet.ts", import.meta.url)
+      );
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const source = context.createMediaStreamSource(stream);
-      const captureNode = new AudioWorkletNode(context, "capture-worklet");
+      const source = captureContext.createMediaStreamSource(stream);
+      const captureNode = new AudioWorkletNode(
+        captureContext,
+        "capture-worklet"
+      );
       source.connect(captureNode);
-
-      ensurePlaybackScheduler(context);
 
       const websocket = new WebSocket(wsUrl);
       websocket.binaryType = "arraybuffer";
       websocketRef.current = websocket;
       downstreamCarryRef.current = new Uint8Array(0);
-      downstreamSampleRateRef.current = 24000;
       let configSent = false;
 
       captureNode.port.onmessage = (event: MessageEvent) => {
@@ -121,7 +154,7 @@ export default function App() {
               type: "audio_config",
               sample_rate: data.sampleRate,
               channels: data.channels,
-              encoding: data.encoding
+              encoding: data.encoding,
             })
           );
           configSent = true;
@@ -140,16 +173,13 @@ export default function App() {
             const parsed = JSON.parse(event.data) as unknown;
             const chunks = extractPcmAudioChunksFromAdkEvent(parsed);
             for (const chunk of chunks) {
-              if (chunk.sampleRate) {
-                downstreamSampleRateRef.current = chunk.sampleRate;
-              }
               const { samples, carry } = decodePcm16StreamChunk(
                 chunk.buffer,
                 downstreamCarryRef.current
               );
               downstreamCarryRef.current = carry;
               if (samples.length > 0) {
-                playerRef.current.enqueue(samples);
+                sendSamplesToWorklet(samples);
               }
             }
           } catch {
@@ -163,7 +193,7 @@ export default function App() {
         );
         downstreamCarryRef.current = carry;
         if (samples.length > 0) {
-          playerRef.current.enqueue(samples);
+          sendSamplesToWorklet(samples);
         }
       };
 
@@ -172,7 +202,10 @@ export default function App() {
       };
 
       websocket.onclose = () => {
-        console.info("PlayerMetrics", playerRef.current.getMetrics());
+        playbackNodeRef.current?.port.postMessage({ command: "getMetrics" });
+        setTimeout(() => {
+          console.info("PlaybackMetrics", { ...metricsRef.current });
+        }, 100);
         if (status !== "Erro") {
           setStatus("Erro");
         }
@@ -187,7 +220,10 @@ export default function App() {
     <main>
       <h1>A(I)nimism Studio</h1>
       <p aria-live="polite">Status: {status}</p>
-      <button onClick={() => void start()} disabled={started && status === "Vivo"}>
+      <button
+        onClick={() => void start()}
+        disabled={started && status === "Vivo"}
+      >
         Start
       </button>
     </main>
