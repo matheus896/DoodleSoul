@@ -286,32 +286,32 @@ export default function App() {
   const isLoading = appState !== "idle" && appState !== "ready" && appState !== "error";
 
   return (
-    <main className="p-8 max-w-md mx-auto bg-indigo-50 min-h-screen font-sans text-indigo-950 font-medium">
-      <h1 className="text-3xl mb-6 font-bold text-indigo-600 drop-shadow-sm">A(I)nimism Studio</h1>
+    <main className="app-container">
+      <h1 className="app-title">A(I)nimism Studio</h1>
 
-      <div className="bg-white p-6 rounded-2xl shadow-[4px_4px_0px_0px_rgba(79,70,229,0.2)] border-2 border-indigo-200 mb-6 transition-all duration-300">
-        <div className="flex items-center gap-3 mb-4">
-          <p aria-live="polite" className="text-lg flex-1">Status: {stateText[appState]}</p>
+      <div className="session-card">
+        <div className="status-row">
+          <p aria-live="polite" className="status-text">Status: {stateText[appState]}</p>
           {isLoading && (
             <div
               aria-busy="true"
-              className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"
+              className="spinner"
             ></div>
           )}
         </div>
 
-        <label className="block mb-4">
-          <span className="block mb-1 text-indigo-800">Child's Name (optional)</span>
+        <label className="input-label">
+          <span className="input-label-text">Child's Name (optional)</span>
           <input
-            className="w-full px-4 py-2 rounded-xl border-2 border-indigo-100 focus:border-indigo-400 focus:ring-0 outline-none transition-colors"
+            className="text-input"
             type="text"
             value={childName}
             onChange={(event) => setChildName(event.target.value)}
           />
         </label>
-        <label className="flex items-center gap-2 mb-4 bg-indigo-50 p-3 rounded-xl border border-indigo-100 cursor-pointer hover:bg-indigo-100 transition-colors">
+        <label className="consent-label">
           <input
-            className="w-5 h-5 text-indigo-600 rounded-md focus:ring-indigo-500 border-indigo-300"
+            className="consent-checkbox"
             type="checkbox"
             checked={caregiverConsent}
             onChange={(event) => {
@@ -321,22 +321,22 @@ export default function App() {
               }
             }}
           />
-          <span className="text-indigo-800">Caregiver consent confirmed</span>
+          <span className="consent-text">Caregiver consent confirmed</span>
         </label>
         {initialGreeting && (
-          <p aria-live="polite" className="mt-4 p-4 bg-orange-50 text-orange-800 rounded-xl border border-orange-200 animate-pulse">
+          <p aria-live="polite" className="greeting-box">
             Greeting: {initialGreeting}
           </p>
         )}
         {actionMessage && (
-          <p role="alert" className="mt-4 p-4 bg-red-50 text-red-800 rounded-xl border border-red-200 font-semibold">
+          <p role="alert" className="error-alert">
             {actionMessage}
           </p>
         )}
       </div>
 
       <button
-        className="w-full py-4 bg-orange-500 hover:bg-orange-600 disabled:bg-indigo-200 disabled:cursor-not-allowed text-white text-xl font-bold rounded-2xl shadow-[0px_4px_0px_0px_#c2410c] active:shadow-none active:translate-y-1 transition-all"
+        className="start-button"
         onClick={() => void start()}
         disabled={isLoading || appState === "ready"}
       >
