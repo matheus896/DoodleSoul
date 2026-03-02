@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { extractPcmAudioChunksFromAdkEvent } from "./audio/adkEventAudio";
 import { decodePcm16StreamChunk } from "./audio/pcm16Stream";
+import { parseMediaEvent } from "./media/mediaEventParser";
+import { NarrativeTimeline } from "./media/NarrativeTimeline";
+import { useMediaTimeline } from "./media/useMediaTimeline";
 import { derivePersonaFromDrawing } from "./session/personaDerivation";
 import {
   buildLiveWebSocketUrl,
@@ -44,6 +47,8 @@ export default function App() {
   const [childName, setChildName] = useState("");
   const [initialGreeting, setInitialGreeting] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+
+  const { scenes, dispatchMediaEvent, reset: resetTimeline } = useMediaTimeline();
 
   const captureContextRef = useRef<AudioContext | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
@@ -109,6 +114,7 @@ export default function App() {
       setAppState("starting");
       setActionMessage("");
       setInitialGreeting("");
+      resetTimeline();
 
       const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
       const wsUrlTemplate =
@@ -234,6 +240,15 @@ export default function App() {
         if (typeof event.data === "string") {
           try {
             const parsed = JSON.parse(event.data) as unknown;
+
+            // Media events dispatched to NarrativeTimeline (F3.1/F3.2/F3.3)
+            const mediaEvent = parseMediaEvent(parsed);
+            if (mediaEvent) {
+              dispatchMediaEvent(mediaEvent);
+              return;
+            }
+
+            // Audio extraction (existing path)
             const chunks = extractPcmAudioChunksFromAdkEvent(parsed);
             for (const chunk of chunks) {
               const { samples, carry } = decodePcm16StreamChunk(
@@ -334,6 +349,8 @@ export default function App() {
           </p>
         )}
       </div>
+
+      <NarrativeTimeline scenes={scenes} />
 
       <button
         className="start-button"

@@ -334,6 +334,235 @@ html {
   }
 }
 
+/* =============================================================================
+   Epic 3 — Narrative Timeline & Media Components
+   =============================================================================
+   Implements: F3.1 (timeline rendering), F3.2 (visual scaffolding),
+   F3.3 (Ken Burns fallback), F3.4 (performance-safe styles).
+   NFR9: all animations are gentle, reduced-motion compliant.
+   NFR11: accessible labels, aria attributes on cards.
+   ============================================================================= */
+
+/* ── Ken Burns Animation (F3.3 AC1: CSS-only, transform: scale() translate()) ── */
+@keyframes ken-burns {
+  0%   { transform: scale(1) translate(0, 0); }
+  25%  { transform: scale(1.08) translate(-1%, -1%); }
+  50%  { transform: scale(1.15) translate(1%, -2%); }
+  75%  { transform: scale(1.06) translate(-0.5%, 1%); }
+  100% { transform: scale(1) translate(0, 0); }
+}
+
+/* ── Shimmer / Sparkle Animation (F3.2: generating placeholder) ── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Sparkle Float (gentle sparkle icon animation) ── */
+@keyframes sparkle-float {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.8; }
+  50%      { transform: translateY(-4px) scale(1.1); opacity: 1; }
+}
+
+/* ── 15. Narrative Timeline ── */
+.narrative-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.timeline-title {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-indigo-600);
+  margin-bottom: var(--space-2);
+}
+
+/* ── 16. Scene Card ── */
+.scene-card {
+  background: var(--color-white);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  border: 2px solid var(--color-indigo-200);
+  overflow: hidden;
+  transition: border-color var(--transition-normal);
+}
+
+.scene-card[data-status="generating"] {
+  border-color: var(--color-orange-200);
+}
+
+.scene-card[data-status="delayed"] {
+  border-color: var(--color-orange-500);
+}
+
+.scene-card[data-status="image_ready"] {
+  border-color: var(--color-indigo-300);
+}
+
+.scene-card[data-status="video_ready"] {
+  border-color: var(--color-indigo-400);
+}
+
+/* ── 17. Generating Placeholder (F3.2: sparkle/shimmer) ── */
+.scene-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  background: linear-gradient(
+    110deg,
+    var(--color-indigo-50) 30%,
+    var(--color-indigo-100) 50%,
+    var(--color-indigo-50) 70%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s ease-in-out infinite;
+  min-height: 160px;
+}
+
+.scene-sparkle-icon {
+  font-size: 2rem;
+  animation: sparkle-float 2s ease-in-out infinite;
+}
+
+.scene-placeholder-text {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-indigo-600);
+}
+
+/* ── 18. Image Placeholder (mock:// URLs → gradient) ── */
+.scene-image-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.scene-image-placeholder {
+  width: 100%;
+  min-height: 200px;
+  background: linear-gradient(
+    135deg,
+    var(--color-indigo-100) 0%,
+    var(--color-indigo-200) 30%,
+    var(--color-indigo-300) 60%,
+    var(--color-indigo-200) 100%
+  );
+}
+
+/* ── 19. Ken Burns Fallback (F3.3 AC1: CSS-only) ── */
+.scene-ken-burns {
+  animation: ken-burns 8s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+/* ── 20. Delayed Placeholder (no image available) ── */
+.scene-delayed-placeholder {
+  width: 100%;
+  min-height: 200px;
+  background: linear-gradient(
+    110deg,
+    var(--color-orange-50) 30%,
+    var(--color-orange-200) 50%,
+    var(--color-orange-50) 70%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+/* ── 21. Status Badge ── */
+.scene-status-badge {
+  position: absolute;
+  bottom: var(--space-3);
+  left: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-xl);
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  backdrop-filter: blur(4px);
+}
+
+.scene-status-badge--ready {
+  background-color: rgba(99, 102, 241, 0.85);
+  color: var(--color-white);
+}
+
+.scene-status-badge--delayed {
+  background-color: rgba(249, 115, 22, 0.85);
+  color: var(--color-white);
+  animation: gentle-pulse 3s ease-in-out infinite;
+}
+
+/* ── 22. Video Placeholder ── */
+.scene-video-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.scene-video-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8);
+  background: linear-gradient(
+    135deg,
+    var(--color-indigo-600) 0%,
+    var(--color-indigo-500) 50%,
+    var(--color-indigo-400) 100%
+  );
+  min-height: 200px;
+  color: var(--color-white);
+}
+
+.scene-video-icon {
+  font-size: 2.5rem;
+  opacity: 0.9;
+}
+
+.scene-video-text {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.scene-video-duration {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* ── Accessibility: Reduced Motion (NFR9) ── */
+@media (prefers-reduced-motion: reduce) {
+  .scene-ken-burns {
+    animation: none;
+  }
+
+  .scene-placeholder {
+    animation: none;
+  }
+
+  .scene-delayed-placeholder {
+    animation: none;
+  }
+
+  .scene-sparkle-icon {
+    animation: none;
+  }
+
+  .scene-status-badge--delayed {
+    animation: none;
+  }
+}
+
 /* ── Responsive ── */
 @media (max-width: 480px) {
   .app-container {
@@ -346,5 +575,16 @@ html {
 
   .session-card {
     padding: var(--space-4);
+  }
+
+  .scene-placeholder {
+    min-height: 120px;
+    padding: var(--space-6) var(--space-3);
+  }
+
+  .scene-image-placeholder,
+  .scene-delayed-placeholder,
+  .scene-video-placeholder {
+    min-height: 160px;
   }
 }
