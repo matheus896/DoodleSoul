@@ -455,6 +455,14 @@ html {
   );
 }
 
+.scene-image-asset {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  object-fit: cover;
+  background: var(--color-indigo-100);
+}
+
 /* ── 19. Ken Burns Fallback (F3.3 AC1: CSS-only) ── */
 .scene-ken-burns {
   animation: ken-burns 8s ease-in-out infinite;
@@ -520,6 +528,13 @@ html {
   );
   min-height: 200px;
   color: var(--color-white);
+}
+
+.scene-video-asset {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  background: var(--color-indigo-600);
 }
 
 .scene-video-icon {

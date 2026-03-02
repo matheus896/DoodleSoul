@@ -99,7 +99,7 @@ Use `PASS`, `FAIL`, or `PENDING`.
 | Gate 1 | Isolated tests (`tests/`) | pytest output + generated artifacts in `tests/output/` | PASS | 2026-03-02 | Copilot/Matheus | `7 passed` on Epic 3 isolated suite |
 | Gate 2 | Mocked integration E2E (real WS + audio, mocked media) | integration test logs + timing/ordering assertions | PASS | 2026-03-02 | Copilot/Matheus | `9 passed` on Gate 2 suite (`test_epic3_integration_mocked.py`) — real bridge, zero errors |
 | Gate 3 preflight | Pilot mock through real bridge (automated) | pytest output | PASS | 2026-03-02 | Copilot/Matheus | `8 passed` on `test_pilot_mock_stream.py` — validated before human sessions |
-| Gate 3 | Human pilot sessions (>=3) | session checklists + operator notes | IN PROGRESS | 2026-03-02 | Matheus + Amelia | Session 1: PASS (49.32s, 0 errors). Sessions 2 and 3: PENDING |
+| Gate 3 | Human pilot sessions (>=3) | session checklists + operator notes | PASS | 2026-03-02 | Matheus + Amelia | Sessions 1-3: PASS (49.32s, 114.2s, 82.9s), 0 errors, visual timeline transitions validated |
 
 ---
 
@@ -131,13 +131,37 @@ Repeat this block for each session.
 - Final result: `PASS`
 - Notes: Audio = repetitive tone (expected — mock uses sine wave, not AI speech). Setup latency 277ms. `errors: 0`. Full analysis in `docs/hands-on/tracer_bullet_day4/validation-epic3/tests_pilot_human.md`.
 
-### Session 2 (pending)
+### Session 2 (completed)
 
-*(To be filled — Amelia)*
+- Session ID: `not-captured-in-log` (manual pilot run)
+- Date/Operator: 2026-03-02 / Amelia
+- Duration: 114.2s
+- No dead air observed: `PASS` — continuous 24kHz tone responses during the full run
+- Correct fallback when delay `>30s`: `PASS` — scene transitioned to delayed fallback state before video completion
+- No audible underflow artifacts: `PASS`
+- Narrative continuity during pending media: `PASS` — timeline preserved order and transitions under active audio
+- Final result: `PASS`
+- Notes: Backend metrics kept `downstream_text_count: 5` and `errors: 0`; visual flow observed end-to-end (`drawing_in_progress` → image → delayed → video).
 
-### Session 3 (pending)
+### Session 3 (completed)
 
-*(To be filled — Amelia)*
+- Session ID: `not-captured-in-log` (manual pilot run)
+- Date/Operator: 2026-03-02 / Amelia
+- Duration: 82.9s
+- No dead air observed: `PASS` — continuous tones across all scenario phases
+- Correct fallback when delay `>30s`: `PASS` — delayed state appeared and was replaced by video-ready state
+- No audible underflow artifacts: `PASS`
+- Narrative continuity during pending media: `PASS` — scene cards remained coherent while audio stayed stable
+- Final result: `PASS`
+- Notes: Human-observed transition deltas (~5s and ~3s) are within accepted ±5s manual margin from `docs/troubles/lessons_day4.md`; backend `errors: 0`.
+
+### MCP revalidation artifact (visual timeline)
+
+- Date: 2026-03-02
+- Method: Chrome DevTools MCP automated run against `http://localhost:5173` (backend in `ANIMISM_LIVE_MODE=pilot`)
+- Evidence: `tests/output/gate3_mcp_video_ready.png`
+- Observed states: `Creating magic...` → `Image ready` → `Creating something special...` → `Video ready!`
+- Note: browser automation used synthetic `getUserMedia` to bypass mic permission; human sessions remain authoritative for perceived audio quality criteria.
 
 ---
 
@@ -149,4 +173,6 @@ Declare **"concept met"** only when:
 - Gate 3 has at least 3 sessions, all with final result `PASS`.
 
 If either condition is missing, concept status remains: `NOT YET MET`.
+
+Current status: `CONCEPT MET` (Gate 2 = PASS and Gate 3 Sessions 1-3 = PASS).
 

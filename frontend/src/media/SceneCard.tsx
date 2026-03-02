@@ -30,6 +30,10 @@ const STATUS_LABELS: Record<Scene["status"], string> = {
   video_ready: "Video ready!",
 };
 
+function isHttpsAsset(url: string | null): url is string {
+  return typeof url === "string" && url.startsWith("https://");
+}
+
 function SceneContent({ scene }: SceneCardProps) {
   switch (scene.status) {
     case "generating":
@@ -51,14 +55,27 @@ function SceneContent({ scene }: SceneCardProps) {
     case "image_ready":
       return (
         <div className="scene-image-container">
-          <div
-            className="scene-image-placeholder"
-            role="img"
-            aria-label={`Generated image for ${scene.sceneId}`}
-            style={{
-              aspectRatio: `${scene.imageWidth ?? 1024} / ${scene.imageHeight ?? 1024}`,
-            }}
-          />
+          {isHttpsAsset(scene.imageUrl) ? (
+            <img
+              className="scene-image-asset"
+              src={scene.imageUrl}
+              alt={`Generated image for ${scene.sceneId}`}
+              loading="lazy"
+              decoding="async"
+              style={{
+                aspectRatio: `${scene.imageWidth ?? 1024} / ${scene.imageHeight ?? 1024}`,
+              }}
+            />
+          ) : (
+            <div
+              className="scene-image-placeholder"
+              role="img"
+              aria-label={`Generated image for ${scene.sceneId}`}
+              style={{
+                aspectRatio: `${scene.imageWidth ?? 1024} / ${scene.imageHeight ?? 1024}`,
+              }}
+            />
+          )}
           <span className="scene-status-badge scene-status-badge--ready">
             {STATUS_LABELS.image_ready}
           </span>
@@ -68,7 +85,18 @@ function SceneContent({ scene }: SceneCardProps) {
     case "delayed":
       return (
         <div className="scene-image-container">
-          {scene.imageUrl ? (
+          {isHttpsAsset(scene.imageUrl) ? (
+            <img
+              className="scene-image-asset scene-ken-burns"
+              src={scene.imageUrl}
+              alt={`Image with animation for ${scene.sceneId}`}
+              loading="lazy"
+              decoding="async"
+              style={{
+                aspectRatio: `${scene.imageWidth ?? 1024} / ${scene.imageHeight ?? 1024}`,
+              }}
+            />
+          ) : scene.imageUrl ? (
             // Ken Burns on existing image (F3.3 AC3)
             <div
               className="scene-image-placeholder scene-ken-burns"
@@ -101,17 +129,28 @@ function SceneContent({ scene }: SceneCardProps) {
           className="scene-video-container"
           aria-label={`Video for ${scene.sceneId}`}
         >
-          <div className="scene-video-placeholder">
-            <span className="scene-video-icon" aria-hidden="true">
-              ▶
-            </span>
-            <span className="scene-video-text">{STATUS_LABELS.video_ready}</span>
-            {scene.videoDuration != null && (
-              <span className="scene-video-duration">
-                {scene.videoDuration}s
+          {isHttpsAsset(scene.videoUrl) ? (
+            <video
+              className="scene-video-asset"
+              src={scene.videoUrl}
+              aria-label={`Generated video for ${scene.sceneId}`}
+              playsInline
+              controls
+              preload="metadata"
+            />
+          ) : (
+            <div className="scene-video-placeholder">
+              <span className="scene-video-icon" aria-hidden="true">
+                ▶
               </span>
-            )}
-          </div>
+              <span className="scene-video-text">{STATUS_LABELS.video_ready}</span>
+              {scene.videoDuration != null && (
+                <span className="scene-video-duration">
+                  {scene.videoDuration}s
+                </span>
+              )}
+            </div>
+          )}
         </div>
       );
   }

@@ -89,6 +89,22 @@ describe("SceneCard rendering by status", () => {
     expect(html).toContain("Image ready");
   });
 
+  it("image_ready with https url: renders img element", () => {
+    const scenes = [
+      makeScene({
+        sceneId: "s1",
+        status: "image_ready",
+        imageUrl: "https://cdn.example.com/scene-1.png",
+        imageWidth: 1024,
+        imageHeight: 768,
+      }),
+    ];
+    const html = renderToString(<NarrativeTimeline scenes={scenes} />);
+    expect(html).toContain('data-status="image_ready"');
+    expect(html).toContain("scene-image-asset");
+    expect(html).toContain('src="https://cdn.example.com/scene-1.png"');
+  });
+
   it("delayed with image: shows Ken Burns class", () => {
     const scenes = [
       makeScene({
@@ -104,6 +120,23 @@ describe("SceneCard rendering by status", () => {
     expect(html).toContain('data-status="delayed"');
     expect(html).toContain("scene-ken-burns");
     expect(html).toContain("Creating something special...");
+  });
+
+  it("delayed with https image: renders img with Ken Burns class", () => {
+    const scenes = [
+      makeScene({
+        sceneId: "s1",
+        status: "delayed",
+        imageUrl: "https://cdn.example.com/scene-1.png",
+        imageWidth: 1024,
+        imageHeight: 768,
+        fallbackActive: true,
+      }),
+    ];
+    const html = renderToString(<NarrativeTimeline scenes={scenes} />);
+    expect(html).toContain('data-status="delayed"');
+    expect(html).toContain("scene-image-asset");
+    expect(html).toContain("scene-ken-burns");
   });
 
   it("delayed without image: shows delayed placeholder (no Ken Burns)", () => {
@@ -135,5 +168,20 @@ describe("SceneCard rendering by status", () => {
     expect(html).toContain("Video ready!");
     expect(html).toContain("scene-video-duration");
     expect(html).toMatch(/8.*s/);
+  });
+
+  it("video_ready with https url: renders video element", () => {
+    const scenes = [
+      makeScene({
+        sceneId: "s2",
+        status: "video_ready",
+        videoUrl: "https://cdn.example.com/scene-2.mp4",
+        videoDuration: 8,
+      }),
+    ];
+    const html = renderToString(<NarrativeTimeline scenes={scenes} />);
+    expect(html).toContain('data-status="video_ready"');
+    expect(html).toContain("scene-video-asset");
+    expect(html).toContain('src="https://cdn.example.com/scene-2.mp4"');
   });
 });
