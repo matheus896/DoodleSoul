@@ -1,0 +1,5 @@
+google-genai
+pillow
+pytest
+python-dotenv
+pytest-asyncio
