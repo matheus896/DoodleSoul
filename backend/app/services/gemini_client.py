@@ -8,6 +8,9 @@ from typing import Any, AsyncIterator, Protocol
 
 logger = logging.getLogger(__name__)
 
+_MEDIA_TOOLS = {"generate_image", "generate_video"}
+_TEXT_TOOL_MARKER = "[ANIMISM_TOOL_CALL]"
+
 
 # ---------------------------------------------------------------------------
 # ADK tool stubs — declared on the Agent so Gemini can call them.
@@ -153,6 +156,78 @@ class AdkGeminiLiveStream:
                 # scene_id promoted to top level for interceptor convenience
                 "scene_id": args.get("scene_id") or "",
             })
+
+        if translated:
+            return translated
+
+        return AdkGeminiLiveStream._translate_text_tool_markers(dumped)
+
+    @staticmethod
+    def _translate_text_tool_markers(dumped: dict[str, Any]) -> list[dict[str, Any]]:
+        """Translate explicit text markers into tool_call events.
+
+        Marker format (single line):
+            [ANIMISM_TOOL_CALL] {"tool":"generate_image","args":{"scene_id":"scene-1"}}
+
+        This is a fallback path for runtimes where native live tool-calling
+        may be unavailable for the selected model/project.
+        """
+        content: dict[str, Any] = dumped.get("content") or {}
+        parts: list[Any] = content.get("parts") or []
+        translated: list[dict[str, Any]] = []
+        candidate_texts: list[str] = []
+
+        output_transcription = dumped.get("output_transcription")
+        if isinstance(output_transcription, dict):
+            maybe_text = output_transcription.get("text")
+            if isinstance(maybe_text, str) and maybe_text:
+                candidate_texts.append(maybe_text)
+
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                candidate_texts.append(text)
+
+        for text in candidate_texts:
+            if _TEXT_TOOL_MARKER not in text:
+                continue
+            scan_pos = 0
+            while True:
+                marker_pos = text.find(_TEXT_TOOL_MARKER, scan_pos)
+                if marker_pos < 0:
+                    break
+
+                raw_candidate = text[marker_pos + len(_TEXT_TOOL_MARKER):].lstrip()
+                if not raw_candidate:
+                    break
+
+                try:
+                    marker_payload, consumed = json.JSONDecoder().raw_decode(raw_candidate)
+                except json.JSONDecodeError:
+                    scan_pos = marker_pos + len(_TEXT_TOOL_MARKER)
+                    continue
+                if not isinstance(marker_payload, dict):
+                    scan_pos = marker_pos + len(_TEXT_TOOL_MARKER) + consumed
+                    continue
+
+                tool = marker_payload.get("tool")
+                args = marker_payload.get("args")
+                if not isinstance(tool, str) or tool not in _MEDIA_TOOLS:
+                    scan_pos = marker_pos + len(_TEXT_TOOL_MARKER) + consumed
+                    continue
+                if not isinstance(args, dict):
+                    args = {}
+
+                translated.append({
+                    "type": "tool_call",
+                    "tool": tool,
+                    "args": args,
+                    "scene_id": args.get("scene_id") or "",
+                })
+                scan_pos = marker_pos + len(_TEXT_TOOL_MARKER) + consumed
+
         return translated
 
     async def _iter_runner_events(self) -> AsyncIterator[dict[str, Any] | bytes]:
@@ -199,19 +274,32 @@ class GeminiLiveClient:
         if not api_key:
             raise RuntimeError("GOOGLE_API_KEY is required for Gemini Live API")
 
+        tool_mode = os.getenv("ANIMISM_ADK_TOOL_MODE", "native").lower()
+        native_tools_enabled = tool_mode != "text_fallback"
+
+        base_instruction = (
+            "You are Animism, a warm and imaginative voice companion for children. "
+            "When the child's story or conversation calls for a visual moment — "
+            "something to draw, paint, or bring to life — call generate_image with "
+            "a scene_id (e.g. 'scene-1') and a vivid image_prompt describing what "
+            "to generate.  After an image is shown, you may call generate_video with "
+            "the same scene_id to animate it.  Keep the scene_id unique per creative "
+            "moment in the session."
+        )
+
+        fallback_instruction = (
+            " If function calls are unavailable, emit exactly one line per call in this "
+            "format and continue naturally: "
+            "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_image\",\"args\":{\"scene_id\":\"scene-1\",\"image_prompt\":\"...\"}} "
+            "and later "
+            "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}."
+        )
+
         agent = Agent(
             name="animism_live_agent",
             model=model,
-            instruction=(
-                "You are Animism, a warm and imaginative voice companion for children. "
-                "When the child's story or conversation calls for a visual moment — "
-                "something to draw, paint, or bring to life — call generate_image with "
-                "a scene_id (e.g. 'scene-1') and a vivid image_prompt describing what "
-                "to generate.  After an image is shown, you may call generate_video with "
-                "the same scene_id to animate it.  Keep the scene_id unique per creative "
-                "moment in the session."
-            ),
-            tools=[generate_image, generate_video],
+            instruction=base_instruction + (fallback_instruction if not native_tools_enabled else ""),
+            tools=[generate_image, generate_video] if native_tools_enabled else [],
         )
         session_service = InMemorySessionService()
         runner = Runner(

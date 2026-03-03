@@ -202,6 +202,8 @@ async def test_v31_orchestrator_emits_image_created_with_url():
     assert image_events[0]["scene_id"] == "scene-1"
     assert "url" in image_events[0]
     assert image_events[0]["media_type"] == "image"
+    assert image_events[0]["width"] == 1024
+    assert image_events[0]["height"] == 1024
 
 
 @pytest.mark.asyncio
@@ -224,6 +226,7 @@ async def test_v31_orchestrator_emits_video_created_with_url():
     assert video_events[0]["scene_id"] == "scene-1"
     assert "url" in video_events[0]
     assert video_events[0]["media_type"] == "video"
+    assert video_events[0]["duration_seconds"] == 8
 
 
 @pytest.mark.asyncio

@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 IMAGEN_MODEL = "imagen-4.0-generate-001"
 VEO_MODEL = "veo-3.0-fast-generate-001"
 
+# Frontend media contract defaults (Epic 3 parser requirements)
+DEFAULT_IMAGE_WIDTH = 1024
+DEFAULT_IMAGE_HEIGHT = 1024
+DEFAULT_VIDEO_DURATION_SECONDS = 8
+
 
 # ── Prompt Grounding (V3.2) ──────────────────────────────────────────────────
 
@@ -190,6 +195,8 @@ class MediaOrchestrator:
             "scene_id": scene_id,
             "media_type": "image",
             "url": url,
+            "width": DEFAULT_IMAGE_WIDTH,
+            "height": DEFAULT_IMAGE_HEIGHT,
         })
 
     # ── Veo generation with polling + fallback ───────────────────────────
@@ -270,6 +277,7 @@ class MediaOrchestrator:
             "scene_id": scene_id,
             "media_type": "video",
             "url": url,
+            "duration_seconds": DEFAULT_VIDEO_DURATION_SECONDS,
         })
 
     # ── Helpers ──────────────────────────────────────────────────────────

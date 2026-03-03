@@ -175,3 +175,76 @@ def test_translate_arguments_key_supported() -> None:
     assert len(result) == 1
     assert result[0]["scene_id"] == "scene-args-key"
     assert result[0]["args"]["video_prompt"] == "walk"
+
+
+def test_translate_text_tool_marker_generate_image() -> None:
+    dumped: dict = {
+        "content": {
+            "parts": [
+                {
+                    "text": (
+                        "[ANIMISM_TOOL_CALL] "
+                        '{"tool":"generate_image","args":{"scene_id":"scene-t1","image_prompt":"a kite"}}'
+                    )
+                }
+            ]
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 1
+    assert result[0]["tool"] == "generate_image"
+    assert result[0]["scene_id"] == "scene-t1"
+    assert result[0]["args"]["image_prompt"] == "a kite"
+
+
+def test_translate_text_tool_marker_ignored_when_invalid_json() -> None:
+    dumped: dict = {
+        "content": {
+            "parts": [
+                {
+                    "text": "[ANIMISM_TOOL_CALL] {invalid-json"
+                }
+            ]
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert result == []
+
+
+def test_translate_text_tool_marker_from_output_transcription() -> None:
+    dumped: dict = {
+        "output_transcription": {
+            "text": (
+                "[ANIMISM_TOOL_CALL] "
+                '{"tool":"generate_video","args":{"scene_id":"scene-t2","video_prompt":"gentle motion"}}'
+            ),
+            "finished": False,
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 1
+    assert result[0]["tool"] == "generate_video"
+    assert result[0]["scene_id"] == "scene-t2"
+    assert result[0]["args"]["video_prompt"] == "gentle motion"
+
+
+def test_translate_text_tool_marker_inline_multiple_calls() -> None:
+    dumped: dict = {
+        "output_transcription": {
+            "text": (
+                "Let's draw now. "
+                "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_image\",\"args\":{\"scene_id\":\"scene-t3\",\"image_prompt\":\"forest\"}} "
+                "And animate it. "
+                "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-t3\",\"video_prompt\":\"forest wind\"}}"
+            ),
+            "finished": True,
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 2
+    assert result[0]["tool"] == "generate_image"
+    assert result[1]["tool"] == "generate_video"
