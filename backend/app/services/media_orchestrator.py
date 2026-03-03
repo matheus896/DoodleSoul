@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from app.services import debug_tracer
+
 logger = logging.getLogger(__name__)
 
 # Default model identifiers (match existing test fixtures)
@@ -136,6 +138,11 @@ class MediaOrchestrator:
         Events are pushed to ``event_sink`` as they happen. The function
         returns only after both tasks complete (or are handled).
         """
+        debug_tracer.log_debug(
+            event_type="scene_orchestration_started",
+            source="orchestrator",
+            scene_id=scene_id,
+        )
         # 1) Signal that generation has started
         await self._emit(event_sink, {
             "type": "drawing_in_progress",
@@ -270,6 +277,12 @@ class MediaOrchestrator:
     @staticmethod
     async def _emit(sink: EventSink, event: MediaEvent) -> None:
         """Push an event to the sink (supports sync and async callables)."""
+        debug_tracer.log_debug(
+            event_type="media_event_emitted",
+            source="orchestrator",
+            scene_id=event.get("scene_id"),
+            event_kind=event.get("type"),
+        )
         result = sink(event)
         if asyncio.iscoroutine(result) or asyncio.isfuture(result):
             await result

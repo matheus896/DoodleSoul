@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 from app.config.env_loader import load_env_once
+from app.services import debug_tracer
 from app.services.media_orchestrator import MediaOrchestrator, build_scene_prompts
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,11 @@ class MediaToolCallInterceptingStream:
         self._queue.put_nowait(event)
 
     async def _orchestrate_scene(self, *, scene_id: str, image_prompt: str, video_prompt: str) -> None:
+        debug_tracer.log_debug(
+            event_type="scene_orchestration_started",
+            source="interceptor",
+            scene_id=scene_id,
+        )
         try:
             await self._media_orchestrator.orchestrate_scene(
                 scene_id=scene_id,
@@ -105,16 +111,43 @@ class MediaToolCallInterceptingStream:
             )
         except Exception:
             logger.exception("Media orchestration failed for scene_id=%s", scene_id)
+        else:
+            debug_tracer.log_debug(
+                event_type="scene_orchestration_completed",
+                source="interceptor",
+                scene_id=scene_id,
+            )
 
     def _handle_tool_call(self, event: dict[str, Any]) -> None:
+        # Classify tool-like events for observability before extraction
+        if event.get("type") == "tool_call":
+            tool = event.get("tool")
+            if not isinstance(tool, str) or tool not in _MEDIA_TOOLS:
+                debug_tracer.log_debug(
+                    event_type="tool_call_unrecognized",
+                    source="interceptor",
+                    reason=f"tool={tool!r} not in media tools",
+                )
+
         payload = _extract_tool_call_payload(event)
         if payload is None:
             return
 
         tool, scene_id, args = payload
         if scene_id in self._active_scenes:
+            debug_tracer.log_debug(
+                event_type="tool_call_deduplicated",
+                source="interceptor",
+                scene_id=scene_id,
+            )
             return
 
+        debug_tracer.log_debug(
+            event_type="tool_call_recognized",
+            source="interceptor",
+            scene_id=scene_id,
+            tool=tool,
+        )
         self._active_scenes.add(scene_id)
         image_prompt, video_prompt = _build_prompts(tool=tool, scene_id=scene_id, event=event, args=args)
 
@@ -215,14 +248,30 @@ def maybe_wrap_live_client_with_media_orchestrator(
     load_env_once()
     resolved_mode = (live_mode or os.getenv("ANIMISM_LIVE_MODE", "adk")).lower()
     if resolved_mode in {"mock", "pilot"}:
+        debug_tracer.log_debug(
+            event_type="interceptor_bypassed",
+            source="interceptor",
+            mode=resolved_mode,
+        )
         return client
 
     orchestrator = media_orchestrator
     if orchestrator is None:
         orchestrator = _build_default_orchestrator()
     if orchestrator is None:
+        debug_tracer.log_debug(
+            event_type="interceptor_bypassed",
+            source="interceptor",
+            mode=resolved_mode,
+            reason="orchestrator_unavailable",
+        )
         return client
 
+    debug_tracer.log_debug(
+        event_type="interceptor_active",
+        source="interceptor",
+        mode=resolved_mode,
+    )
     return MediaToolCallInterceptingClient(
         base_client=client,
         media_orchestrator=orchestrator,

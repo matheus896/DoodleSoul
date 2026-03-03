@@ -1,8 +1,49 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import os
 from typing import Any, AsyncIterator, Protocol
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# ADK tool stubs — declared on the Agent so Gemini can call them.
+# These stubs return immediately; real orchestration is handled by
+# MediaToolCallInterceptingStream via the tool_call event translation below.
+# ---------------------------------------------------------------------------
+
+def generate_image(  # noqa: D401
+    scene_id: str,
+    prompt: str = "",
+    image_prompt: str = "",
+) -> dict[str, str]:
+    """Generate a scene image using Imagen.
+
+    Call this when the story calls for a visual moment — a drawing, an
+    illustration, or a scene the child described.  Pass scene_id to identify
+    this scene in later events.
+    """
+    return {"status": "acknowledged", "scene_id": scene_id}
+
+
+def generate_video(  # noqa: D401
+    scene_id: str,
+    prompt: str = "",
+    video_prompt: str = "",
+) -> dict[str, str]:
+    """Generate a short animated scene using Veo.
+
+    Call this when you want to bring a scene to life with motion.  Use the
+    same scene_id as the preceding generate_image call when applicable.
+    """
+    return {"status": "acknowledged", "scene_id": scene_id}
+
+
+# ---------------------------------------------------------------------------
+# Protocol
+# ---------------------------------------------------------------------------
 
 
 class GeminiLiveStream(Protocol):
@@ -69,6 +110,34 @@ class AdkGeminiLiveStream:
         content = types.Content(role="user", parts=[types.Part(text=text)])
         await self._maybe_await(self._queue.send_content(content))
 
+    @staticmethod
+    def _translate_function_calls(dumped: dict[str, Any]) -> list[dict[str, Any]]:
+        """Translate ADK requested_function_calls to interceptor tool_call format.
+
+        ADK emits function calls in ``event.actions.requested_function_calls``.
+        The MediaToolCallInterceptingStream expects ``{type: "tool_call", tool, args}``.
+        This translation is emitted BEFORE the original ADK event so the interceptor
+        can fire orchestration while the ADK event continues downstream.
+        """
+        actions: dict[str, Any] = dumped.get("actions") or {}
+        raw_calls: list[Any] = actions.get("requested_function_calls") or []
+        translated: list[dict[str, Any]] = []
+        for fc in raw_calls:
+            if not isinstance(fc, dict):
+                continue
+            name: str = fc.get("name") or ""
+            if not name:
+                continue
+            args: dict[str, Any] = fc.get("args") or {}
+            translated.append({
+                "type": "tool_call",
+                "tool": name,
+                "args": args,
+                # scene_id promoted to top level for interceptor convenience
+                "scene_id": args.get("scene_id") or "",
+            })
+        return translated
+
     async def _iter_runner_events(self) -> AsyncIterator[dict[str, Any] | bytes]:
         await self._ensure_initialized()
         async for event in self._runner.run_live(
@@ -78,7 +147,16 @@ class AdkGeminiLiveStream:
             run_config=self._run_config,
         ):
             if hasattr(event, "model_dump"):
-                yield event.model_dump(mode="json")
+                dumped: dict[str, Any] = event.model_dump(mode="json")
+                # Emit translated tool_call events BEFORE the original ADK event
+                for tool_call_event in self._translate_function_calls(dumped):
+                    logger.debug(
+                        "ADK function call translated: tool=%s scene_id=%s",
+                        tool_call_event.get("tool"),
+                        tool_call_event.get("scene_id"),
+                    )
+                    yield tool_call_event
+                yield dumped
                 continue
             yield event
 
@@ -107,7 +185,16 @@ class GeminiLiveClient:
         agent = Agent(
             name="animism_live_agent",
             model=model,
-            instruction="You are a helpful conversational voice companion for children.",
+            instruction=(
+                "You are Animism, a warm and imaginative voice companion for children. "
+                "When the child's story or conversation calls for a visual moment — "
+                "something to draw, paint, or bring to life — call generate_image with "
+                "a scene_id (e.g. 'scene-1') and a vivid image_prompt describing what "
+                "to generate.  After an image is shown, you may call generate_video with "
+                "the same scene_id to animate it.  Keep the scene_id unique per creative "
+                "moment in the session."
+            ),
+            tools=[generate_image, generate_video],
         )
         session_service = InMemorySessionService()
         runner = Runner(

@@ -12,9 +12,10 @@
  */
 
 import { AnimatePresence } from "motion/react";
-import { memo } from "react";
+import { memo, useEffect } from "react";
 
 import type { Scene } from "./mediaEventTypes";
+import { debugLog } from "./debugSink";
 import { SceneCard } from "./SceneCard";
 
 interface NarrativeTimelineProps {
@@ -22,6 +23,20 @@ interface NarrativeTimelineProps {
 }
 
 function NarrativeTimelineInner({ scenes }: NarrativeTimelineProps) {
+  // Debug: log scene status transitions for observability (no-op when toggle off)
+  useEffect(() => {
+    for (const scene of scenes) {
+      debugLog({
+        event_type: "scene_render",
+        source: "NarrativeTimeline",
+        scene_id: scene.sceneId,
+        status: scene.status,
+        has_image: scene.imageUrl !== null,
+        has_video: scene.videoUrl !== null,
+      });
+    }
+  }, [scenes]);
+
   if (scenes.length === 0) {
     return null;
   }

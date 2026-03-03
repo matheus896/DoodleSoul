@@ -8,6 +8,7 @@ from typing import Any
 
 from app.realtime.audio_protocol import AudioFormatError, validate_pcm16_16khz_mono
 from app.realtime.bridge_metrics import BridgeMetrics
+from app.services import debug_tracer
 
 logger = logging.getLogger(__name__)
 uvicorn_logger = logging.getLogger("uvicorn.error")
@@ -142,6 +143,13 @@ async def run_duplex_bridge(
                 text_content = _extract_text(event)
                 if text_content:
                     metrics.record_downstream_text()
+                debug_tracer.log_debug(
+                    event_type="downstream_event",
+                    source="bridge",
+                    session_id=session_id,
+                    scene_id=event.get("scene_id") if isinstance(event.get("scene_id"), str) else None,
+                    event_kind=event.get("type"),
+                )
                 continue
 
             audio_chunk = _extract_audio_bytes(event)

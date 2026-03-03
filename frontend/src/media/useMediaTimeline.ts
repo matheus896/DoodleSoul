@@ -14,6 +14,7 @@
 import { useCallback, useMemo, useReducer } from "react";
 
 import type { MediaEvent, Scene, SceneStatus } from "./mediaEventTypes";
+import { debugLog } from "./debugSink";
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -155,6 +156,12 @@ export function useMediaTimeline(): UseMediaTimelineResult {
 
   const dispatchMediaEvent = useCallback(
     (event: MediaEvent) => {
+      debugLog({
+        event_type: "timeline_event_dispatched",
+        source: "useMediaTimeline",
+        scene_id: event.scene_id,
+        event_kind: event.type,
+      });
       dispatch({ type: "MEDIA_EVENT", event });
     },
     [],

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { extractPcmAudioChunksFromAdkEvent } from "./audio/adkEventAudio";
 import { decodePcm16StreamChunk } from "./audio/pcm16Stream";
+import { debugLog, getDebugRing } from "./media/debugSink";
 import { parseMediaEvent } from "./media/mediaEventParser";
 import { NarrativeTimeline } from "./media/NarrativeTimeline";
 import { useMediaTimeline } from "./media/useMediaTimeline";
@@ -36,6 +37,7 @@ const stateText: Record<AppState, string> = {
 type AppWindow = Window & {
   __animismPlayerMetrics?: () => PlaybackMetrics;
   __animismSetupMetrics?: { setupTimeMs: number };
+  __animismDebugRing?: () => ReturnType<typeof getDebugRing>;
 };
 
 const STARTUP_DRAWING_PLACEHOLDER_BASE64 =
@@ -72,9 +74,11 @@ export default function App() {
       playbackNodeRef.current?.port.postMessage({ command: "getMetrics" });
       return { ...metricsRef.current };
     };
+    appWindow.__animismDebugRing = getDebugRing;
 
     return () => {
       delete appWindow.__animismPlayerMetrics;
+      delete appWindow.__animismDebugRing;
       websocketRef.current?.close();
       void captureContextRef.current?.close();
       void playbackContextRef.current?.close();
@@ -241,9 +245,27 @@ export default function App() {
           try {
             const parsed = JSON.parse(event.data) as unknown;
 
+            // Debug: log raw WS text event (skip non-typed payloads)
+            const parsedObj = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+            if (parsedObj?.type) {
+              debugLog({
+                event_type: "ws_text_received",
+                source: "App",
+                event_kind: String(parsedObj.type),
+                scene_id: typeof parsedObj.scene_id === "string" ? parsedObj.scene_id : undefined,
+              });
+            }
+
             // Media events dispatched to NarrativeTimeline (F3.1/F3.2/F3.3)
+            // parseMediaEvent logs drops to debugSink internally
             const mediaEvent = parseMediaEvent(parsed);
             if (mediaEvent) {
+              debugLog({
+                event_type: "media_event_dispatched",
+                source: "App",
+                scene_id: mediaEvent.scene_id,
+                event_kind: mediaEvent.type,
+              });
               dispatchMediaEvent(mediaEvent);
               return;
             }

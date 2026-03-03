@@ -221,3 +221,52 @@ def test_websocket_route_fail_fast_invalid_config(monkeypatch) -> None:
         payload = json.loads(ws.receive_text())
         assert payload["type"] == "error"
         assert payload["code"] == "invalid_audio_format"
+
+
+# ---------------------------------------------------------------------------
+# Debug toggle tests for bridge (Epic 3 Observability)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bridge_debug_logs_downstream_media_event_when_enabled(
+    monkeypatch, caplog
+) -> None:
+    """When ANIMISM_DEBUG_MEDIA=1, a dict media event forwarded downstream is debug-logged."""
+    monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
+
+    media_event = {
+        "type": "drawing_in_progress",
+        "scene_id": "scene-bridge-dbg",
+    }
+    websocket = FakeWebSocket(messages=[{"type": "websocket.disconnect"}])
+    gemini_client = FakeGeminiClient(stream=FakeStream(events=[media_event]))
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        await run_duplex_bridge(
+            websocket=websocket, gemini_client=gemini_client, session_id="s1"
+        )
+
+    assert any(
+        "downstream_event" in record.message and "scene-bridge-dbg" in record.message
+        for record in caplog.records
+    ), f"Expected downstream_event debug log. Got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_bridge_debug_silent_when_disabled(monkeypatch, caplog) -> None:
+    """When ANIMISM_DEBUG_MEDIA is unset, no debug logs from bridge."""
+    monkeypatch.delenv("ANIMISM_DEBUG_MEDIA", raising=False)
+
+    media_event = {"type": "drawing_in_progress", "scene_id": "scene-quiet"}
+    websocket = FakeWebSocket(messages=[{"type": "websocket.disconnect"}])
+    gemini_client = FakeGeminiClient(stream=FakeStream(events=[media_event]))
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        await run_duplex_bridge(
+            websocket=websocket, gemini_client=gemini_client, session_id="s1"
+        )
+
+    assert not any(
+        "[ANIMISM_DEBUG]" in record.message for record in caplog.records
+    ), "Expected no debug logs when toggle is off"

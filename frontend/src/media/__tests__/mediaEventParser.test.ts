@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { parseMediaEvent } from "../mediaEventParser";
+import { parseMediaEvent, classifyMediaPayload, DROP_REASON } from "../mediaEventParser";
 
 describe("parseMediaEvent", () => {
   // ── Positive cases ──
@@ -194,5 +194,192 @@ describe("parseMediaEvent", () => {
     expect(
       parseMediaEvent({ type: "text", text: "I'm drawing your robot!" }),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyMediaPayload — drop reason diagnostics (Epic 3 Observability)
+// ---------------------------------------------------------------------------
+
+describe("classifyMediaPayload — drop reasons", () => {
+  it("returns NOT_AN_OBJECT for null", () => {
+    expect(classifyMediaPayload(null).dropReason).toBe(DROP_REASON.NOT_AN_OBJECT);
+  });
+
+  it("returns NOT_AN_OBJECT for string", () => {
+    expect(classifyMediaPayload("hello").dropReason).toBe(DROP_REASON.NOT_AN_OBJECT);
+  });
+
+  it("returns NOT_AN_OBJECT for number", () => {
+    expect(classifyMediaPayload(42).dropReason).toBe(DROP_REASON.NOT_AN_OBJECT);
+  });
+
+  it("returns NO_TYPE_FIELD for object without type", () => {
+    expect(classifyMediaPayload({ scene_id: "s" }).dropReason).toBe(DROP_REASON.NO_TYPE_FIELD);
+  });
+
+  it("returns UNKNOWN_EVENT_TYPE for unrecognised type", () => {
+    expect(
+      classifyMediaPayload({ type: "unknown_thing", scene_id: "s" }).dropReason,
+    ).toBe(DROP_REASON.UNKNOWN_EVENT_TYPE);
+  });
+
+  it("returns UNKNOWN_EVENT_TYPE for type=text", () => {
+    expect(
+      classifyMediaPayload({ type: "text", text: "hi" }).dropReason,
+    ).toBe(DROP_REASON.UNKNOWN_EVENT_TYPE);
+  });
+
+  it("returns MISSING_SCENE_ID when scene_id absent on recognised type", () => {
+    expect(
+      classifyMediaPayload({ type: "system_instruction", text: "drawing_in_progress" }).dropReason,
+    ).toBe(DROP_REASON.MISSING_SCENE_ID);
+  });
+
+  it("returns MISSING_SCENE_ID for empty string scene_id", () => {
+    expect(
+      classifyMediaPayload({
+        type: "system_instruction",
+        text: "drawing_in_progress",
+        scene_id: "",
+      }).dropReason,
+    ).toBe(DROP_REASON.MISSING_SCENE_ID);
+  });
+
+  it("returns INSTRUCTION_WRONG_TEXT for system_instruction with unexpected text", () => {
+    expect(
+      classifyMediaPayload({
+        type: "system_instruction",
+        text: "some_other_instruction",
+        scene_id: "s",
+      }).dropReason,
+    ).toBe(DROP_REASON.INSTRUCTION_WRONG_TEXT);
+  });
+
+  it("returns IMAGE_MISSING_URL for media.image.created without url", () => {
+    expect(
+      classifyMediaPayload({
+        type: "media.image.created",
+        scene_id: "s",
+        width: 1024,
+        height: 1024,
+      }).dropReason,
+    ).toBe(DROP_REASON.IMAGE_MISSING_URL);
+  });
+
+  it("returns IMAGE_MISSING_DIMENSIONS for media.image.created without width/height", () => {
+    expect(
+      classifyMediaPayload({
+        type: "media.image.created",
+        scene_id: "s",
+        url: "mock://test",
+      }).dropReason,
+    ).toBe(DROP_REASON.IMAGE_MISSING_DIMENSIONS);
+  });
+
+  it("returns DELAYED_MISSING_ELAPSED for media_delayed without elapsed_seconds", () => {
+    expect(
+      classifyMediaPayload({ type: "media_delayed", scene_id: "s" }).dropReason,
+    ).toBe(DROP_REASON.DELAYED_MISSING_ELAPSED);
+  });
+
+  it("returns VIDEO_MISSING_URL for media.video.created without url", () => {
+    expect(
+      classifyMediaPayload({
+        type: "media.video.created",
+        scene_id: "s",
+        duration_seconds: 8,
+      }).dropReason,
+    ).toBe(DROP_REASON.VIDEO_MISSING_URL);
+  });
+
+  it("returns VIDEO_MISSING_DURATION for media.video.created without duration_seconds", () => {
+    expect(
+      classifyMediaPayload({
+        type: "media.video.created",
+        scene_id: "s",
+        url: "mock://test",
+      }).dropReason,
+    ).toBe(DROP_REASON.VIDEO_MISSING_DURATION);
+  });
+
+  // ── Success cases return null dropReason ──
+
+  it("returns null dropReason for valid system_instruction", () => {
+    const { event, dropReason } = classifyMediaPayload({
+      type: "system_instruction",
+      text: "drawing_in_progress",
+      scene_id: "s",
+    });
+    expect(dropReason).toBeNull();
+    expect(event).not.toBeNull();
+  });
+
+  it("parses drawing_in_progress (direct orchestrator format) and normalises to system_instruction", () => {
+    const { event, dropReason } = classifyMediaPayload({
+      type: "drawing_in_progress",
+      scene_id: "scene-orch",
+    });
+    expect(dropReason).toBeNull();
+    expect(event).not.toBeNull();
+    expect(event!.type).toBe("system_instruction");
+    expect(event!.scene_id).toBe("scene-orch");
+  });
+
+  it("returns null dropReason for valid media.image.created", () => {
+    const { event, dropReason } = classifyMediaPayload({
+      type: "media.image.created",
+      scene_id: "s",
+      url: "mock://img",
+      width: 1024,
+      height: 1024,
+    });
+    expect(dropReason).toBeNull();
+    expect(event).not.toBeNull();
+  });
+
+  it("returns null dropReason for valid media_delayed", () => {
+    const { dropReason } = classifyMediaPayload({
+      type: "media_delayed",
+      scene_id: "s",
+      elapsed_seconds: 30,
+    });
+    expect(dropReason).toBeNull();
+  });
+
+  it("returns null dropReason for valid media.video.created", () => {
+    const { dropReason } = classifyMediaPayload({
+      type: "media.video.created",
+      scene_id: "s",
+      url: "mock://vid",
+      duration_seconds: 8,
+    });
+    expect(dropReason).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseMediaEvent — drawing_in_progress compat (new in Epic 3 Observability)
+// ---------------------------------------------------------------------------
+
+describe("parseMediaEvent — drawing_in_progress compat", () => {
+  it("accepts direct drawing_in_progress format (MediaOrchestrator output)", () => {
+    const result = parseMediaEvent({
+      type: "drawing_in_progress",
+      scene_id: "scene-1",
+    });
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe("system_instruction");
+    expect(result!.scene_id).toBe("scene-1");
+  });
+
+  it("still accepts legacy system_instruction format (pilot mock)", () => {
+    const result = parseMediaEvent({
+      type: "system_instruction",
+      text: "drawing_in_progress",
+      scene_id: "scene-2",
+    });
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe("system_instruction");
   });
 });

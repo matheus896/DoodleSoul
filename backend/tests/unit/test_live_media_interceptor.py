@@ -190,3 +190,158 @@ def test_maybe_wrap_uses_injected_orchestrator_in_adk_mode() -> None:
     )
 
     assert isinstance(wrapped, MediaToolCallInterceptingClient)
+
+
+# ---------------------------------------------------------------------------
+# Debug toggle tests (Epic 3 Observability)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_debug_logs_tool_call_recognized_when_enabled(monkeypatch, caplog) -> None:
+    """When ANIMISM_DEBUG_MEDIA=1, a valid tool_call logs 'tool_call_recognized'."""
+    monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "generate_image",
+                "scene_id": "scene-dbg",
+                "prompt": "a sunny park",
+            }
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+    )
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        await _collect_events(stream)
+
+    assert any(
+        "tool_call_recognized" in record.message and "scene-dbg" in record.message
+        for record in caplog.records
+    ), f"Expected 'tool_call_recognized' in logs. Got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_debug_logs_tool_call_deduplicated_when_enabled(monkeypatch, caplog) -> None:
+    """When ANIMISM_DEBUG_MEDIA=1, a duplicate tool_call logs 'tool_call_deduplicated'."""
+    monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
+
+    base_stream = FakeBaseStream(
+        events=[
+            {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-dup"},
+            {"type": "tool_call", "tool": "generate_video", "scene_id": "scene-dup"},
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+    )
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        await _collect_events(stream)
+
+    assert any(
+        "tool_call_deduplicated" in record.message and "scene-dup" in record.message
+        for record in caplog.records
+    ), f"Expected 'tool_call_deduplicated' in logs. Got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_debug_logs_unrecognized_tool_like_payload_when_enabled(monkeypatch, caplog) -> None:
+    """When debug on, a dict with type=tool_call but unknown tool logs 'tool_call_unrecognized'."""
+    monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "unknown_tool",  # not in _MEDIA_TOOLS
+                "scene_id": "scene-x",
+            }
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+    )
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        await _collect_events(stream)
+
+    assert any(
+        "tool_call_unrecognized" in record.message
+        for record in caplog.records
+    ), f"Expected 'tool_call_unrecognized'. Got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_debug_silent_when_disabled(monkeypatch, caplog) -> None:
+    """When ANIMISM_DEBUG_MEDIA is not set, no [ANIMISM_DEBUG] logs are emitted."""
+    monkeypatch.delenv("ANIMISM_DEBUG_MEDIA", raising=False)
+
+    base_stream = FakeBaseStream(
+        events=[
+            {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-q"},
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+    )
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        await _collect_events(stream)
+
+    assert not any(
+        "[ANIMISM_DEBUG]" in record.message
+        for record in caplog.records
+    ), "Expected no debug logs when toggle is off"
+
+
+def test_debug_logs_bypass_decision_in_mock_mode(monkeypatch, caplog) -> None:
+    """When debug on, bypassing interceptor for mock mode is logged."""
+    monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
+
+    base_client = object()
+    orchestrator = FakeOrchestrator()
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        maybe_wrap_live_client_with_media_orchestrator(
+            client=base_client,
+            live_mode="mock",
+            media_orchestrator=orchestrator,
+        )
+
+    assert any(
+        "interceptor_bypassed" in record.message and "mock" in record.message
+        for record in caplog.records
+    ), f"Expected 'interceptor_bypassed' for mock mode. Got: {[r.message for r in caplog.records]}"
+
+
+def test_debug_logs_interceptor_active_in_adk_mode(monkeypatch, caplog) -> None:
+    """When debug on, activating the interceptor for adk mode is logged."""
+    monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
+
+    base_client = object()
+    orchestrator = FakeOrchestrator()
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        maybe_wrap_live_client_with_media_orchestrator(
+            client=base_client,
+            live_mode="adk",
+            media_orchestrator=orchestrator,
+        )
+
+    assert any(
+        "interceptor_active" in record.message
+        for record in caplog.records
+    ), f"Expected 'interceptor_active' for adk mode. Got: {[r.message for r in caplog.records]}"
