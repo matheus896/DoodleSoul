@@ -137,3 +137,41 @@ def test_translate_non_dict_entries_skipped() -> None:
     result = AdkGeminiLiveStream._translate_function_calls(dumped)
     assert len(result) == 1
     assert result[0]["tool"] == "generate_image"
+
+
+def test_translate_args_json_string_parsed() -> None:
+    dumped: dict = {
+        "actions": {
+            "requested_function_calls": [
+                {
+                    "name": "generate_image",
+                    "args": '{"scene_id":"scene-json","image_prompt":"moon"}',
+                    "id": "call-json",
+                },
+            ]
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 1
+    assert result[0]["scene_id"] == "scene-json"
+    assert result[0]["args"]["image_prompt"] == "moon"
+
+
+def test_translate_arguments_key_supported() -> None:
+    dumped: dict = {
+        "actions": {
+            "requested_function_calls": [
+                {
+                    "name": "generate_video",
+                    "arguments": {"scene_id": "scene-args-key", "video_prompt": "walk"},
+                    "id": "call-arguments",
+                },
+            ]
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 1
+    assert result[0]["scene_id"] == "scene-args-key"
+    assert result[0]["args"]["video_prompt"] == "walk"

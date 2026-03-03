@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import os
 from typing import Any, AsyncIterator, Protocol
@@ -122,13 +123,29 @@ class AdkGeminiLiveStream:
         actions: dict[str, Any] = dumped.get("actions") or {}
         raw_calls: list[Any] = actions.get("requested_function_calls") or []
         translated: list[dict[str, Any]] = []
+
+        def _normalize_args(raw_args: Any, fallback: Any) -> dict[str, Any]:
+            if isinstance(raw_args, dict):
+                return raw_args
+            if isinstance(raw_args, str):
+                try:
+                    parsed = json.loads(raw_args)
+                except json.JSONDecodeError:
+                    return {}
+                if isinstance(parsed, dict):
+                    return parsed
+                return {}
+            if isinstance(fallback, dict):
+                return fallback
+            return {}
+
         for fc in raw_calls:
             if not isinstance(fc, dict):
                 continue
             name: str = fc.get("name") or ""
             if not name:
                 continue
-            args: dict[str, Any] = fc.get("args") or {}
+            args: dict[str, Any] = _normalize_args(fc.get("args"), fc.get("arguments"))
             translated.append({
                 "type": "tool_call",
                 "tool": name,
