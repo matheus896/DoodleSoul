@@ -7,6 +7,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.realtime.audio_protocol import AudioFormatError
 from app.realtime.bridge import run_duplex_bridge
 from app.services.live_client_factory import build_live_client
+from app.services.live_media_interceptor import maybe_wrap_live_client_with_media_orchestrator
 
 
 router = APIRouter()
@@ -23,7 +24,8 @@ async def _safe_close(websocket: WebSocket, code: int) -> None:
 @router.websocket("/ws/live/{session_id}")
 async def ws_live(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
-    client = build_live_client()
+    base_client = build_live_client()
+    client = maybe_wrap_live_client_with_media_orchestrator(client=base_client)
     try:
         await run_duplex_bridge(websocket=websocket, gemini_client=client, session_id=session_id)
     except AudioFormatError as error:

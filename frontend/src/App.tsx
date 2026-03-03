@@ -292,7 +292,8 @@ export default function App() {
           return "error";
         });
       };
-    } catch {
+    } catch (error) {
+      console.error("Session startup failed during audio/worklet setup.", error);
       setAppState("error");
       setActionMessage("Could not start session. Verify consent and try again.");
     }
