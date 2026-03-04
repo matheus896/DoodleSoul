@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from app.config.env_loader import load_env_once
 from app.services import debug_tracer
+from app.services.asset_store import build_asset_store
 from app.services.media_orchestrator import MediaOrchestrator, build_scene_prompts
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,10 @@ class MediaToolCallInterceptingStream:
                 if isinstance(event, dict):
                     self._handle_tool_call(event)
                 await self._queue.put(event)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Base stream pump ended with error")
         finally:
             self._base_done.set()
 
@@ -233,7 +238,8 @@ def _build_default_orchestrator() -> MediaOrchestrator | None:
         from google import genai
 
         client = genai.Client(api_key=api_key)
-        return MediaOrchestrator(client=client)
+        asset_store = build_asset_store()
+        return MediaOrchestrator(client=client, asset_store=asset_store)
     except Exception:
         logger.warning("Failed to initialize MediaOrchestrator default client", exc_info=True)
         return None

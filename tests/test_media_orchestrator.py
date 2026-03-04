@@ -40,6 +40,7 @@ from app.services.media_orchestrator import (  # noqa: E402
     PromptBundle,
     build_scene_prompts,
 )
+from app.services.asset_store import AssetStore  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -510,3 +511,118 @@ async def test_v31_all_events_have_scene_id():
     for e in events:
         assert "scene_id" in e, f"Event missing scene_id: {e}"
         assert e["scene_id"] == "scene-42"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Asset Store integration — "render real validated" URLs
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_asset_store_image_url_starts_with_base_url(tmp_path):
+    """When asset_store is supplied, image URL must start with base_url/assets/."""
+    store = AssetStore(assets_dir=tmp_path, base_url="http://localhost:8000")
+    client = FakeGenaiClient(veo_polls=2, veo_poll_delay_s=0.01)
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.01,
+        fallback_timeout_s=10.0,
+        asset_store=store,
+    )
+
+    events: list[dict[str, Any]] = []
+    await orchestrator.orchestrate_scene(
+        scene_id="scene-http",
+        image_prompt="A rainbow",
+        video_prompt="Rainbow glows",
+        event_sink=events.append,
+    )
+
+    grouped = _collect_events(events)
+    image_events = grouped.get("media.image.created", [])
+    assert len(image_events) == 1
+    url = image_events[0]["url"]
+    assert url.startswith("http://localhost:8000/assets/"), (
+        f"Image URL must start with base_url/assets/, got: {url!r}"
+    )
+    assert url.endswith(".png"), f"Image URL must end with .png, got: {url!r}"
+
+
+@pytest.mark.asyncio
+async def test_asset_store_video_url_starts_with_base_url(tmp_path):
+    """When asset_store is supplied, video URL must start with base_url/assets/."""
+    store = AssetStore(assets_dir=tmp_path, base_url="http://localhost:8000")
+    client = FakeGenaiClient(veo_polls=2, veo_poll_delay_s=0.01)
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.01,
+        fallback_timeout_s=10.0,
+        asset_store=store,
+    )
+
+    events: list[dict[str, Any]] = []
+    await orchestrator.orchestrate_scene(
+        scene_id="scene-http",
+        image_prompt="A rainbow",
+        video_prompt="Rainbow glows",
+        event_sink=events.append,
+    )
+
+    grouped = _collect_events(events)
+    video_events = grouped.get("media.video.created", [])
+    assert len(video_events) == 1
+    url = video_events[0]["url"]
+    assert url.startswith("http://localhost:8000/assets/"), (
+        f"Video URL must start with base_url/assets/, got: {url!r}"
+    )
+    assert url.endswith(".mp4"), f"Video URL must end with .mp4, got: {url!r}"
+
+
+@pytest.mark.asyncio
+async def test_asset_store_files_written_to_disk(tmp_path):
+    """With asset_store, both PNG and MP4 artifacts must be written to assets_dir."""
+    store = AssetStore(assets_dir=tmp_path, base_url="http://localhost:8000")
+    client = FakeGenaiClient(veo_polls=2, veo_poll_delay_s=0.01)
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.01,
+        fallback_timeout_s=10.0,
+        asset_store=store,
+    )
+
+    events: list[dict[str, Any]] = []
+    await orchestrator.orchestrate_scene(
+        scene_id="scene-disk",
+        image_prompt="A forest",
+        video_prompt="Forest sways",
+        event_sink=events.append,
+    )
+
+    assert len(list(tmp_path.glob("*.png"))) >= 1, "PNG artifact must be written"
+    assert len(list(tmp_path.glob("*.mp4"))) >= 1, "MP4 artifact must be written"
+
+
+@pytest.mark.asyncio
+async def test_no_asset_store_falls_back_to_asset_scheme():
+    """Without asset_store or output_dir, URL must use asset:// fallback scheme."""
+    client = FakeGenaiClient(veo_polls=2, veo_poll_delay_s=0.01)
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.01,
+        fallback_timeout_s=10.0,
+        # No asset_store, no output_dir
+    )
+
+    events: list[dict[str, Any]] = []
+    await orchestrator.orchestrate_scene(
+        scene_id="scene-fallback-url",
+        image_prompt="A ship",
+        video_prompt="Ship sails",
+        event_sink=events.append,
+    )
+
+    grouped = _collect_events(events)
+    image_url = grouped["media.image.created"][0]["url"]
+    video_url = grouped["media.video.created"][0]["url"]
+    assert image_url.startswith("asset://"), f"Expected asset:// fallback, got {image_url!r}"
+    assert video_url.startswith("asset://"), f"Expected asset:// fallback, got {video_url!r}"

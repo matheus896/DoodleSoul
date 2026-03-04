@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from app.services import debug_tracer
+from app.services.asset_store import AssetStore
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ class MediaOrchestrator:
         poll_interval_s: float = 5.0,
         fallback_timeout_s: float = 30.0,
         output_dir: Path | None = None,
+        asset_store: AssetStore | None = None,
         imagen_model: str = IMAGEN_MODEL,
         veo_model: str = VEO_MODEL,
     ) -> None:
@@ -125,6 +127,7 @@ class MediaOrchestrator:
         self._poll_interval_s = poll_interval_s
         self._fallback_timeout_s = fallback_timeout_s
         self._output_dir = output_dir
+        self._asset_store = asset_store
         self._imagen_model = imagen_model
         self._veo_model = veo_model
 
@@ -183,12 +186,26 @@ class MediaOrchestrator:
             logger.exception("Imagen generation failed for scene %s", scene_id)
             return
 
-        # Save artifact if output_dir is set
+        if not response.generated_images:
+            logger.warning("Imagen returned no images for scene %s", scene_id)
+            return
+
+        image = response.generated_images[0].image
+
+        # Resolve URL — prefer AssetStore (returns HTTP URL), then output_dir, then fallback
         url = f"asset://imagen/{scene_id}.png"
-        if self._output_dir and response.generated_images:
+        if self._asset_store is not None:
+            try:
+                url = await self._asset_store.save_image(scene_id, image.save)
+            except Exception:
+                logger.exception("AssetStore image save failed for scene %s", scene_id)
+        elif self._output_dir:
             artifact_path = self._output_dir / f"{scene_id}_imagen_still.png"
-            response.generated_images[0].image.save(str(artifact_path))
-            url = str(artifact_path)
+            try:
+                await asyncio.to_thread(image.save, str(artifact_path))
+                url = str(artifact_path)
+            except Exception:
+                logger.exception("Disk image save failed for scene %s", scene_id)
 
         await self._emit(event_sink, {
             "type": "media.image.created",
@@ -266,11 +283,22 @@ class MediaOrchestrator:
             logger.exception("Veo download failed for scene %s", scene_id)
             return
 
+        video = generated_video.video
+
+        # Resolve URL — prefer AssetStore (returns HTTP URL), then output_dir, then fallback
         url = f"asset://veo/{scene_id}.mp4"
-        if self._output_dir:
+        if self._asset_store is not None:
+            try:
+                url = await self._asset_store.save_video(scene_id, video.save)
+            except Exception:
+                logger.exception("AssetStore video save failed for scene %s", scene_id)
+        elif self._output_dir:
             artifact_path = self._output_dir / f"{scene_id}_social_story.mp4"
-            generated_video.video.save(str(artifact_path))
-            url = str(artifact_path)
+            try:
+                await asyncio.to_thread(video.save, str(artifact_path))
+                url = str(artifact_path)
+            except Exception:
+                logger.exception("Disk video save failed for scene %s", scene_id)
 
         await self._emit(event_sink, {
             "type": "media.video.created",
