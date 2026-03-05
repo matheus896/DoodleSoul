@@ -5,7 +5,7 @@ single "scene" within the storytelling flow.  Designed to run alongside the
 live-audio conversation without blocking it.
 
 Key responsibilities:
-    1. Trigger Imagen (still) and Veo (video) concurrently via ``asyncio``.
+    1. Trigger Imagen first, then Veo with optional image reference.
     2. Emit events matching the frontend's established contract:
        - ``drawing_in_progress`` — generation started
        - ``media.image.created`` — Imagen result ready (includes URL/path)
@@ -92,7 +92,7 @@ EventSink = Callable[[MediaEvent], Any]
 # ── MediaOrchestrator ────────────────────────────────────────────────────────
 
 class MediaOrchestrator:
-    """Orchestrates concurrent Imagen + Veo generation for a scene.
+    """Orchestrates sequential Imagen -> Veo generation for a scene.
 
     Parameters
     ----------
@@ -141,7 +141,7 @@ class MediaOrchestrator:
         video_prompt: str,
         event_sink: EventSink,
     ) -> None:
-        """Run the full Imagen + Veo pipeline for a scene.
+        """Run the full Imagen -> Veo pipeline for a scene.
 
         Events are pushed to ``event_sink`` as they happen. The function
         returns only after both tasks complete (or are handled).
@@ -157,15 +157,16 @@ class MediaOrchestrator:
             "scene_id": scene_id,
         })
 
-        # 2) Run Imagen and Veo concurrently
-        image_task = asyncio.create_task(
-            self._generate_image(scene_id, image_prompt, event_sink)
-        )
-        video_task = asyncio.create_task(
-            self._generate_video(scene_id, video_prompt, event_sink)
-        )
+        # 2) Generate image first; Veo consumes it as reference when available.
+        imagen_image = await self._generate_image(scene_id, image_prompt, event_sink)
 
-        await asyncio.gather(image_task, video_task)
+        # 3) Generate video using image-to-video when possible, else text-only.
+        await self._generate_video(
+            scene_id,
+            video_prompt,
+            event_sink,
+            imagen_image=imagen_image,
+        )
 
     # ── Imagen generation ────────────────────────────────────────────────
 
@@ -174,8 +175,8 @@ class MediaOrchestrator:
         scene_id: str,
         prompt: str,
         event_sink: EventSink,
-    ) -> None:
-        """Call Imagen and emit ``media.image.created`` on success."""
+    ) -> Any | None:
+        """Call Imagen, emit ``media.image.created``, and return generated image."""
         try:
             response = await asyncio.to_thread(
                 self._client.models.generate_images,
@@ -184,11 +185,11 @@ class MediaOrchestrator:
             )
         except Exception:
             logger.exception("Imagen generation failed for scene %s", scene_id)
-            return
+            return None
 
         if not response.generated_images:
             logger.warning("Imagen returned no images for scene %s", scene_id)
-            return
+            return None
 
         image = response.generated_images[0].image
 
@@ -215,6 +216,7 @@ class MediaOrchestrator:
             "width": DEFAULT_IMAGE_WIDTH,
             "height": DEFAULT_IMAGE_HEIGHT,
         })
+        return image
 
     # ── Veo generation with polling + fallback ───────────────────────────
 
@@ -223,6 +225,8 @@ class MediaOrchestrator:
         scene_id: str,
         prompt: str,
         event_sink: EventSink,
+        *,
+        imagen_image: Any | None = None,
     ) -> None:
         """Start Veo, poll with fallback timeout, emit events."""
         try:
@@ -230,6 +234,7 @@ class MediaOrchestrator:
                 self._client.models.generate_videos,
                 model=self._veo_model,
                 prompt=prompt,
+                image=imagen_image,
             )
         except Exception:
             logger.exception("Veo generation start failed for scene %s", scene_id)

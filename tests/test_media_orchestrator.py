@@ -131,8 +131,15 @@ class FakeGenaiClient:
             time.sleep(self._p._imagen_delay_s)
             return FakeImageResponse()
 
-        def generate_videos(self, *, model: str, prompt: str, config: Any = None) -> FakeVideoOperation:
-            self._p.veo_calls.append({"model": model, "prompt": prompt})
+        def generate_videos(
+            self,
+            *,
+            model: str,
+            prompt: str,
+            image: Any = None,
+            config: Any = None,
+        ) -> FakeVideoOperation:
+            self._p.veo_calls.append({"model": model, "prompt": prompt, "image": image})
             return FakeVideoOperation(
                 polls_until_done=self._p._veo_polls,
                 poll_delay_s=self._p._veo_poll_delay_s,
@@ -511,6 +518,89 @@ async def test_v31_all_events_have_scene_id():
     for e in events:
         assert "scene_id" in e, f"Event missing scene_id: {e}"
         assert e["scene_id"] == "scene-42"
+
+
+@pytest.mark.asyncio
+async def test_v31_veo_receives_image_reference_when_imagen_succeeds():
+    """Veo must receive ``image=`` when Imagen succeeds."""
+    client = FakeGenaiClient(veo_polls=2, veo_poll_delay_s=0.01)
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.01,
+        fallback_timeout_s=10.0,
+    )
+
+    events: list[dict[str, Any]] = []
+    await orchestrator.orchestrate_scene(
+        scene_id="scene-image-ref",
+        image_prompt="Blue robot",
+        video_prompt="Blue robot waves",
+        event_sink=events.append,
+    )
+
+    assert len(client.veo_calls) == 1
+    assert "image" in client.veo_calls[0], "Veo call must include explicit image parameter"
+    assert client.veo_calls[0]["image"] is not None
+
+
+@pytest.mark.asyncio
+async def test_v31_veo_runs_text_only_when_imagen_fails():
+    """If Imagen fails, Veo must still run with explicit ``image=None`` fallback."""
+    client = FakeGenaiClient(veo_polls=2, veo_poll_delay_s=0.01)
+    client.models.generate_images = MagicMock(side_effect=RuntimeError("imagen boom"))
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.01,
+        fallback_timeout_s=10.0,
+    )
+
+    events: list[dict[str, Any]] = []
+    await orchestrator.orchestrate_scene(
+        scene_id="scene-imagen-fails",
+        image_prompt="Broken image prompt",
+        video_prompt="Video should still run",
+        event_sink=events.append,
+    )
+
+    grouped = _collect_events(events)
+    assert len(grouped.get("media.image.created", [])) == 0
+    assert len(grouped.get("media.video.created", [])) == 1
+    assert len(client.veo_calls) == 1
+    assert "image" in client.veo_calls[0], "Veo call must include explicit image parameter"
+    assert client.veo_calls[0]["image"] is None
+
+
+@pytest.mark.asyncio
+async def test_v31_veo_starts_after_image_event_in_sequential_flow():
+    """Sequential flow requires Veo start only after ``media.image.created`` emit."""
+    client = FakeGenaiClient(imagen_delay_s=0.05, veo_polls=2, veo_poll_delay_s=0.01)
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.01,
+        fallback_timeout_s=10.0,
+    )
+
+    trace: list[str] = []
+
+    def tracking_generate_videos(*, model: str, prompt: str, image: Any = None, config: Any = None) -> FakeVideoOperation:
+        trace.append("veo_called")
+        return FakeVideoOperation(polls_until_done=2, poll_delay_s=0.01)
+
+    async def sink(event: dict[str, Any]) -> None:
+        trace.append(f"event:{event['type']}")
+
+    client.models.generate_videos = tracking_generate_videos
+
+    await orchestrator.orchestrate_scene(
+        scene_id="scene-sequential",
+        image_prompt="Blue robot",
+        video_prompt="Robot walks",
+        event_sink=sink,
+    )
+
+    assert "event:media.image.created" in trace
+    assert "veo_called" in trace
+    assert trace.index("event:media.image.created") < trace.index("veo_called")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
