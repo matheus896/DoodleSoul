@@ -30,8 +30,8 @@ const STATUS_LABELS: Record<Scene["status"], string> = {
   video_ready: "Video ready!",
 };
 
-function isHttpsAsset(url: string | null): url is string {
-  return typeof url === "string" && url.startsWith("https://");
+function isServableAsset(url: string | null): url is string {
+  return typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"));
 }
 
 function SceneContent({ scene }: SceneCardProps) {
@@ -55,7 +55,7 @@ function SceneContent({ scene }: SceneCardProps) {
     case "image_ready":
       return (
         <div className="scene-image-container">
-          {isHttpsAsset(scene.imageUrl) ? (
+          {isServableAsset(scene.imageUrl) ? (
             <img
               className="scene-image-asset"
               src={scene.imageUrl}
@@ -85,7 +85,7 @@ function SceneContent({ scene }: SceneCardProps) {
     case "delayed":
       return (
         <div className="scene-image-container">
-          {isHttpsAsset(scene.imageUrl) ? (
+          {isServableAsset(scene.imageUrl) ? (
             <img
               className="scene-image-asset scene-ken-burns"
               src={scene.imageUrl}
@@ -129,7 +129,7 @@ function SceneContent({ scene }: SceneCardProps) {
           className="scene-video-container"
           aria-label={`Video for ${scene.sceneId}`}
         >
-          {isHttpsAsset(scene.videoUrl) ? (
+          {isServableAsset(scene.videoUrl) ? (
             <video
               className="scene-video-asset"
               src={scene.videoUrl}

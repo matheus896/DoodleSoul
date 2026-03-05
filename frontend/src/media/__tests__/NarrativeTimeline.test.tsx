@@ -184,4 +184,55 @@ describe("SceneCard rendering by status", () => {
     expect(html).toContain("scene-video-asset");
     expect(html).toContain('src="https://cdn.example.com/scene-2.mp4"');
   });
+
+  // ── L6-001: http:// local dev URLs must render real assets ──
+
+  it("image_ready with http url: renders img element (local dev)", () => {
+    const scenes = [
+      makeScene({
+        sceneId: "s1",
+        status: "image_ready",
+        imageUrl: "http://localhost:8000/assets/scene-1_imagen_still.png",
+        imageWidth: 1024,
+        imageHeight: 1024,
+      }),
+    ];
+    const html = renderToString(<NarrativeTimeline scenes={scenes} />);
+    expect(html).toContain("scene-image-asset");
+    expect(html).toContain(
+      'src="http://localhost:8000/assets/scene-1_imagen_still.png"',
+    );
+  });
+
+  it("delayed with http image: renders img with Ken Burns (local dev)", () => {
+    const scenes = [
+      makeScene({
+        sceneId: "s1",
+        status: "delayed",
+        imageUrl: "http://localhost:8000/assets/scene-1_imagen_still.png",
+        imageWidth: 1024,
+        imageHeight: 768,
+        fallbackActive: true,
+      }),
+    ];
+    const html = renderToString(<NarrativeTimeline scenes={scenes} />);
+    expect(html).toContain("scene-image-asset");
+    expect(html).toContain("scene-ken-burns");
+  });
+
+  it("video_ready with http url: renders video element (local dev)", () => {
+    const scenes = [
+      makeScene({
+        sceneId: "s2",
+        status: "video_ready",
+        videoUrl: "http://localhost:8000/assets/scene-1_social_story.mp4",
+        videoDuration: 8,
+      }),
+    ];
+    const html = renderToString(<NarrativeTimeline scenes={scenes} />);
+    expect(html).toContain("scene-video-asset");
+    expect(html).toContain(
+      'src="http://localhost:8000/assets/scene-1_social_story.mp4"',
+    );
+  });
 });
