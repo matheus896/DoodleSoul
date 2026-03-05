@@ -130,6 +130,26 @@ async def test_interceptor_deduplicates_scene_tool_calls() -> None:
 
 
 @pytest.mark.asyncio
+async def test_interceptor_blocks_second_scene_after_first_generation() -> None:
+    base_stream = FakeBaseStream(
+        events=[
+            {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-a"},
+            {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-b"},
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+    )
+
+    _ = await _collect_events(stream)
+
+    assert len(orchestrator.calls) == 1
+    assert orchestrator.calls[0]["scene_id"] == "scene-a"
+
+
+@pytest.mark.asyncio
 async def test_interceptor_passthrough_non_tool_events() -> None:
     event = {"type": "text", "text": "hello"}
     base_stream = FakeBaseStream(events=[event])
@@ -228,8 +248,8 @@ async def test_debug_logs_tool_call_recognized_when_enabled(monkeypatch, caplog)
 
 
 @pytest.mark.asyncio
-async def test_debug_logs_tool_call_deduplicated_when_enabled(monkeypatch, caplog) -> None:
-    """When ANIMISM_DEBUG_MEDIA=1, a duplicate tool_call logs 'tool_call_deduplicated'."""
+async def test_debug_logs_tool_call_blocked_by_session_lock_when_enabled(monkeypatch, caplog) -> None:
+    """When ANIMISM_DEBUG_MEDIA=1, a second tool_call logs 'tool_call_blocked_session_lock'."""
     monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
 
     base_stream = FakeBaseStream(
@@ -248,9 +268,9 @@ async def test_debug_logs_tool_call_deduplicated_when_enabled(monkeypatch, caplo
         await _collect_events(stream)
 
     assert any(
-        "tool_call_deduplicated" in record.message and "scene-dup" in record.message
+        "tool_call_blocked_session_lock" in record.message and "scene-dup" in record.message
         for record in caplog.records
-    ), f"Expected 'tool_call_deduplicated' in logs. Got: {[r.message for r in caplog.records]}"
+    ), f"Expected 'tool_call_blocked_session_lock' in logs. Got: {[r.message for r in caplog.records]}"
 
 
 @pytest.mark.asyncio

@@ -87,6 +87,7 @@ class MediaToolCallInterceptingStream:
         self._orchestration_tasks: set[asyncio.Task[None]] = set()
         self._base_done = asyncio.Event()
         self._active_scenes: set[str] = set()
+        self._media_generation_locked = False
 
     async def send_realtime_audio(self, audio_chunk: bytes) -> None:
         await self._base_stream.send_realtime_audio(audio_chunk)
@@ -135,6 +136,15 @@ class MediaToolCallInterceptingStream:
             return
 
         tool, scene_id, args = payload
+        if self._media_generation_locked:
+            debug_tracer.log_debug(
+                event_type="tool_call_blocked_session_lock",
+                source="interceptor",
+                scene_id=scene_id,
+                tool=tool,
+            )
+            return
+
         if scene_id in self._active_scenes:
             debug_tracer.log_debug(
                 event_type="tool_call_deduplicated",
@@ -149,6 +159,7 @@ class MediaToolCallInterceptingStream:
             scene_id=scene_id,
             tool=tool,
         )
+        self._media_generation_locked = True
         self._active_scenes.add(scene_id)
         image_prompt, video_prompt = _build_prompts(tool=tool, scene_id=scene_id, event=event, args=args)
 

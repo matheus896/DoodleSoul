@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from app.services.gemini_client import (
     AdkGeminiLiveStream,
+    build_agent_instruction,
     generate_image,
     generate_video,
 )
@@ -23,6 +24,17 @@ def test_generate_image_stub_with_image_prompt_kwarg() -> None:
     result = generate_image(scene_id="scene-2", image_prompt="a red dragon")
     assert result["status"] == "acknowledged"
     assert result["scene_id"] == "scene-2"
+
+
+def test_generate_image_stub_accepts_visual_context_fields() -> None:
+    result = generate_image(
+        scene_id="scene-ctx",
+        image_prompt="a blue robot with round eyes",
+        visual_traits=["blue", "round eyes"],
+        child_context="friend from drawing",
+    )
+    assert result["status"] == "acknowledged"
+    assert result["scene_id"] == "scene-ctx"
 
 
 def test_generate_video_stub_returns_acknowledgment() -> None:
@@ -248,3 +260,18 @@ def test_translate_text_tool_marker_inline_multiple_calls() -> None:
     assert len(result) == 2
     assert result[0]["tool"] == "generate_image"
     assert result[1]["tool"] == "generate_video"
+
+
+def test_build_agent_instruction_enforces_permission_and_single_story_policy() -> None:
+    instruction = build_agent_instruction(native_tools_enabled=True)
+
+    assert "ask for explicit permission" in instruction
+    assert "at most one story generation cycle" in instruction
+    assert "must include visual_traits and child_context" in instruction
+
+
+def test_build_agent_instruction_includes_text_tool_fallback_when_disabled() -> None:
+    instruction = build_agent_instruction(native_tools_enabled=False)
+
+    assert "[ANIMISM_TOOL_CALL]" in instruction
+    assert '"tool":"generate_image"' in instruction

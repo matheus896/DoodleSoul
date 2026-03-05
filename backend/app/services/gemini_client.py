@@ -22,6 +22,8 @@ def generate_image(  # noqa: D401
     scene_id: str,
     prompt: str = "",
     image_prompt: str = "",
+    visual_traits: list[str] | None = None,
+    child_context: str = "",
 ) -> dict[str, str]:
     """Generate a scene image using Imagen.
 
@@ -29,6 +31,7 @@ def generate_image(  # noqa: D401
     illustration, or a scene the child described.  Pass scene_id to identify
     this scene in later events.
     """
+    _ = prompt, image_prompt, visual_traits, child_context
     return {"status": "acknowledged", "scene_id": scene_id}
 
 
@@ -277,28 +280,10 @@ class GeminiLiveClient:
         tool_mode = os.getenv("ANIMISM_ADK_TOOL_MODE", "native").lower()
         native_tools_enabled = tool_mode != "text_fallback"
 
-        base_instruction = (
-            "You are Animism, a warm and imaginative voice companion for children. "
-            "When the child's story or conversation calls for a visual moment — "
-            "something to draw, paint, or bring to life — call generate_image with "
-            "a scene_id (e.g. 'scene-1') and a vivid image_prompt describing what "
-            "to generate.  After an image is shown, you may call generate_video with "
-            "the same scene_id to animate it.  Keep the scene_id unique per creative "
-            "moment in the session."
-        )
-
-        fallback_instruction = (
-            " If function calls are unavailable, emit exactly one line per call in this "
-            "format and continue naturally: "
-            "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_image\",\"args\":{\"scene_id\":\"scene-1\",\"image_prompt\":\"...\"}} "
-            "and later "
-            "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}."
-        )
-
         agent = Agent(
             name="animism_live_agent",
             model=model,
-            instruction=base_instruction + (fallback_instruction if not native_tools_enabled else ""),
+            instruction=build_agent_instruction(native_tools_enabled=native_tools_enabled),
             tools=[generate_image, generate_video] if native_tools_enabled else [],
         )
         session_service = InMemorySessionService()
@@ -319,3 +304,27 @@ class GeminiLiveClient:
         if hasattr(stream, "__await__"):
             stream = await stream
         return stream
+
+
+def build_agent_instruction(*, native_tools_enabled: bool) -> str:
+    base_instruction = (
+        "You are Animism, a warm and imaginative voice companion for children. "
+        "Before any media generation, ask for explicit permission in simple words and wait for a clear yes. "
+        "You may run at most one story generation cycle per session. "
+        "Do not open a second story, do not create a second scene_id, and do not call media tools again after the first scene is started. "
+        "When calling generate_image, you must include visual_traits and child_context and make sure image_prompt explicitly describes those drawing traits. "
+        "Use one stable scene_id, for example scene-1. "
+        "After image generation, you may call generate_video once for the same scene_id. "
+        "If child intent is short or ambiguous, keep talking and ask a clarifying question instead of calling tools."
+    )
+
+    if native_tools_enabled:
+        return base_instruction
+
+    fallback_instruction = (
+        " If function calls are unavailable, emit exactly one line per call in this format and continue naturally: "
+        "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_image\",\"args\":{\"scene_id\":\"scene-1\",\"image_prompt\":\"...\",\"visual_traits\":[\"...\"],\"child_context\":\"...\"}} "
+        "and later "
+        "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}."
+    )
+    return base_instruction + fallback_instruction
