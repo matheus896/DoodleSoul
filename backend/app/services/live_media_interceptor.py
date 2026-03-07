@@ -17,6 +17,23 @@ _MEDIA_TOOLS = {"generate_image", "generate_video"}
 
 
 class MediaOrchestratorLike(Protocol):
+    async def generate_image_only(
+        self,
+        *,
+        scene_id: str,
+        image_prompt: str,
+        event_sink: Any,
+    ) -> Any | None: ...
+
+    async def generate_video_only(
+        self,
+        *,
+        scene_id: str,
+        video_prompt: str,
+        event_sink: Any,
+        imagen_image: Any | None = None,
+    ) -> None: ...
+
     async def orchestrate_scene(
         self,
         *,
@@ -86,8 +103,9 @@ class MediaToolCallInterceptingStream:
         self._pump_task: asyncio.Task[None] | None = None
         self._orchestration_tasks: set[asyncio.Task[None]] = set()
         self._base_done = asyncio.Event()
-        self._active_scenes: set[str] = set()
-        self._media_generation_locked = False
+        self._image_generated = False
+        self._video_generated = False
+        self._generated_images: dict[str, Any] = {}
 
     async def send_realtime_audio(self, audio_chunk: bytes) -> None:
         await self._base_stream.send_realtime_audio(audio_chunk)
@@ -113,21 +131,44 @@ class MediaToolCallInterceptingStream:
         except Exception:
             logger.debug("Failed to send media awareness text for %s", event_type, exc_info=True)
 
-    async def _orchestrate_scene(self, *, scene_id: str, image_prompt: str, video_prompt: str) -> None:
+    async def _generate_image_only(self, *, scene_id: str, image_prompt: str) -> None:
         debug_tracer.log_debug(
             event_type="scene_orchestration_started",
             source="interceptor",
             scene_id=scene_id,
         )
         try:
-            await self._media_orchestrator.orchestrate_scene(
+            generated_image = await self._media_orchestrator.generate_image_only(
                 scene_id=scene_id,
                 image_prompt=image_prompt,
-                video_prompt=video_prompt,
                 event_sink=self._emit_media_event,
             )
         except Exception:
-            logger.exception("Media orchestration failed for scene_id=%s", scene_id)
+            logger.exception("Image generation failed for scene_id=%s", scene_id)
+        else:
+            if generated_image is not None:
+                self._generated_images[scene_id] = generated_image
+            debug_tracer.log_debug(
+                event_type="scene_orchestration_completed",
+                source="interceptor",
+                scene_id=scene_id,
+            )
+
+    async def _generate_video_only(self, *, scene_id: str, video_prompt: str) -> None:
+        debug_tracer.log_debug(
+            event_type="scene_orchestration_started",
+            source="interceptor",
+            scene_id=scene_id,
+        )
+        try:
+            await self._media_orchestrator.generate_video_only(
+                scene_id=scene_id,
+                video_prompt=video_prompt,
+                event_sink=self._emit_media_event,
+                imagen_image=self._generated_images.get(scene_id),
+            )
+        except Exception:
+            logger.exception("Video generation failed for scene_id=%s", scene_id)
         else:
             debug_tracer.log_debug(
                 event_type="scene_orchestration_completed",
@@ -151,7 +192,7 @@ class MediaToolCallInterceptingStream:
             return
 
         tool, scene_id, args = payload
-        if self._media_generation_locked:
+        if tool == "generate_image" and self._image_generated:
             debug_tracer.log_debug(
                 event_type="tool_call_blocked_session_lock",
                 source="interceptor",
@@ -159,12 +200,12 @@ class MediaToolCallInterceptingStream:
                 tool=tool,
             )
             return
-
-        if scene_id in self._active_scenes:
+        if tool == "generate_video" and self._video_generated:
             debug_tracer.log_debug(
-                event_type="tool_call_deduplicated",
+                event_type="tool_call_blocked_session_lock",
                 source="interceptor",
                 scene_id=scene_id,
+                tool=tool,
             )
             return
 
@@ -174,17 +215,23 @@ class MediaToolCallInterceptingStream:
             scene_id=scene_id,
             tool=tool,
         )
-        self._media_generation_locked = True
-        self._active_scenes.add(scene_id)
         image_prompt, video_prompt = _build_prompts(tool=tool, scene_id=scene_id, event=event, args=args)
-
-        task = asyncio.create_task(
-            self._orchestrate_scene(
-                scene_id=scene_id,
-                image_prompt=image_prompt,
-                video_prompt=video_prompt,
+        if tool == "generate_image":
+            self._image_generated = True
+            task = asyncio.create_task(
+                self._generate_image_only(
+                    scene_id=scene_id,
+                    image_prompt=image_prompt,
+                )
             )
-        )
+        else:
+            self._video_generated = True
+            task = asyncio.create_task(
+                self._generate_video_only(
+                    scene_id=scene_id,
+                    video_prompt=video_prompt,
+                )
+            )
         self._orchestration_tasks.add(task)
 
         def _cleanup(done_task: asyncio.Task[None]) -> None:

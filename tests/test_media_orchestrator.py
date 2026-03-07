@@ -716,3 +716,43 @@ async def test_no_asset_store_falls_back_to_asset_scheme():
     video_url = grouped["media.video.created"][0]["url"]
     assert image_url.startswith("asset://"), f"Expected asset:// fallback, got {image_url!r}"
     assert video_url.startswith("asset://"), f"Expected asset:// fallback, got {video_url!r}"
+
+
+@pytest.mark.asyncio
+async def test_generate_image_only_emits_image_path_without_video() -> None:
+    client = FakeGenaiClient()
+    orchestrator = MediaOrchestrator(client=client, poll_interval_s=0.01, fallback_timeout_s=10.0)
+
+    events: list[dict[str, Any]] = []
+    image = await orchestrator.generate_image_only(
+        scene_id="scene-split-image",
+        image_prompt="A calm blue robot",
+        event_sink=events.append,
+    )
+
+    event_types = [event["type"] for event in events]
+    assert image is not None
+    assert event_types == ["drawing_in_progress", "media.image.created"]
+    assert len(client.imagen_calls) == 1
+    assert client.veo_calls == []
+
+
+@pytest.mark.asyncio
+async def test_generate_video_only_emits_video_path_without_image() -> None:
+    client = FakeGenaiClient(veo_polls=2, veo_poll_delay_s=0.01)
+    orchestrator = MediaOrchestrator(client=client, poll_interval_s=0.01, fallback_timeout_s=10.0)
+    reference_image = object()
+
+    events: list[dict[str, Any]] = []
+    await orchestrator.generate_video_only(
+        scene_id="scene-split-video",
+        video_prompt="Robot waves gently",
+        event_sink=events.append,
+        imagen_image=reference_image,
+    )
+
+    event_types = [event["type"] for event in events]
+    assert event_types == ["media.video.created"]
+    assert client.imagen_calls == []
+    assert len(client.veo_calls) == 1
+    assert client.veo_calls[0]["image"] is reference_image

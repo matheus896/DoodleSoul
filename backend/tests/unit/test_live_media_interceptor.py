@@ -88,8 +88,11 @@ class FakeOrchestrator:
         scene_id: str,
         video_prompt: str,
         event_sink: Any,
+        imagen_image: Any | None = None,
     ) -> None:
-        self.video_calls.append({"scene_id": scene_id, "video_prompt": video_prompt})
+        self.video_calls.append(
+            {"scene_id": scene_id, "video_prompt": video_prompt, "imagen_image": imagen_image}
+        )
         await event_sink({"type": "media.video.created", "scene_id": scene_id, "url": "mock://vid"})
 
 
@@ -127,9 +130,10 @@ async def test_interceptor_triggers_orchestrator_on_tool_call() -> None:
     assert any(isinstance(e, dict) and e.get("type") == "tool_call" for e in events)
     assert any(isinstance(e, dict) and e.get("type") == "drawing_in_progress" for e in events)
     assert any(isinstance(e, dict) and e.get("type") == "media.image.created" for e in events)
-    assert any(isinstance(e, dict) and e.get("type") == "media.video.created" for e in events)
-    assert len(orchestrator.calls) == 1
-    assert orchestrator.calls[0]["scene_id"] == "scene-1"
+    assert not any(isinstance(e, dict) and e.get("type") == "media.video.created" for e in events)
+    assert len(orchestrator.image_calls) == 1
+    assert orchestrator.image_calls[0]["scene_id"] == "scene-1"
+    assert orchestrator.calls == []
 
 
 @pytest.mark.asyncio
@@ -137,7 +141,7 @@ async def test_interceptor_deduplicates_scene_tool_calls() -> None:
     base_stream = FakeBaseStream(
         events=[
             {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-a"},
-            {"type": "tool_call", "tool": "generate_video", "scene_id": "scene-a"},
+            {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-a"},
         ]
     )
     orchestrator = FakeOrchestrator()
@@ -148,8 +152,8 @@ async def test_interceptor_deduplicates_scene_tool_calls() -> None:
 
     _ = await _collect_events(stream)
 
-    assert len(orchestrator.calls) == 1
-    assert orchestrator.calls[0]["scene_id"] == "scene-a"
+    assert len(orchestrator.image_calls) == 1
+    assert orchestrator.image_calls[0]["scene_id"] == "scene-a"
 
 
 @pytest.mark.asyncio
@@ -168,8 +172,8 @@ async def test_interceptor_blocks_second_scene_after_first_generation() -> None:
 
     _ = await _collect_events(stream)
 
-    assert len(orchestrator.calls) == 1
-    assert orchestrator.calls[0]["scene_id"] == "scene-a"
+    assert len(orchestrator.image_calls) == 1
+    assert orchestrator.image_calls[0]["scene_id"] == "scene-a"
 
 
 @pytest.mark.asyncio
@@ -278,7 +282,7 @@ async def test_debug_logs_tool_call_blocked_by_session_lock_when_enabled(monkeyp
     base_stream = FakeBaseStream(
         events=[
             {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-dup"},
-            {"type": "tool_call", "tool": "generate_video", "scene_id": "scene-dup"},
+            {"type": "tool_call", "tool": "generate_image", "scene_id": "scene-dup"},
         ]
     )
     orchestrator = FakeOrchestrator()
@@ -432,9 +436,9 @@ async def test_send_text_called_on_video_created() -> None:
         events=[
             {
                 "type": "tool_call",
-                "tool": "generate_image",
+                "tool": "generate_video",
                 "scene_id": "scene-1",
-                "prompt": "a blue robot",
+                "args": {"video_prompt": "robot walks gently"},
             },
         ]
     )
@@ -475,8 +479,10 @@ async def test_media_awareness_does_not_trigger_new_generation() -> None:
 
     await _collect_events(stream)
 
-    # Only one orchestration call (the original), no re-trigger from awareness text
-    assert len(orchestrator.calls) == 1
+    # Only one image generation call, no re-trigger from awareness text
+    assert len(orchestrator.image_calls) == 1
+    assert orchestrator.video_calls == []
+    assert orchestrator.calls == []
 
 
 @pytest.mark.asyncio
@@ -488,6 +494,26 @@ async def test_no_send_text_for_drawing_in_progress() -> None:
         def __init__(self) -> None:
             self.calls: list[dict[str, Any]] = []
 
+        async def generate_image_only(
+            self,
+            *,
+            scene_id: str,
+            image_prompt: str,
+            event_sink: Any,
+        ) -> None:
+            self.calls.append({"scene_id": scene_id})
+            await event_sink({"type": "drawing_in_progress", "scene_id": scene_id})
+
+        async def generate_video_only(
+            self,
+            *,
+            scene_id: str,
+            video_prompt: str,
+            event_sink: Any,
+            imagen_image: Any | None = None,
+        ) -> None:
+            _ = scene_id, video_prompt, event_sink, imagen_image
+
         async def orchestrate_scene(
             self,
             *,
@@ -496,8 +522,7 @@ async def test_no_send_text_for_drawing_in_progress() -> None:
             video_prompt: str,
             event_sink: Any,
         ) -> None:
-            self.calls.append({"scene_id": scene_id})
-            await event_sink({"type": "drawing_in_progress", "scene_id": scene_id})
+            _ = scene_id, image_prompt, video_prompt, event_sink
 
     base_stream = FakeBaseStream(
         events=[

@@ -268,6 +268,8 @@ def test_build_agent_instruction_enforces_permission_and_single_story_policy() -
     assert "ask for explicit permission" in instruction
     assert "at most one story generation cycle" in instruction
     assert "must include visual_traits and child_context" in instruction
+    assert "wait for the system to confirm the image is ready" in instruction
+    assert "must call generate_video as a separate step" in instruction
 
 
 def test_build_agent_instruction_includes_text_tool_fallback_when_disabled() -> None:

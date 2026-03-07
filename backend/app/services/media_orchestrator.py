@@ -151,16 +151,41 @@ class MediaOrchestrator:
             source="orchestrator",
             scene_id=scene_id,
         )
-        # 1) Signal that generation has started
+        imagen_image = await self.generate_image_only(
+            scene_id=scene_id,
+            image_prompt=image_prompt,
+            event_sink=event_sink,
+        )
+        await self.generate_video_only(
+            scene_id=scene_id,
+            video_prompt=video_prompt,
+            event_sink=event_sink,
+            imagen_image=imagen_image,
+        )
+
+    async def generate_image_only(
+        self,
+        *,
+        scene_id: str,
+        image_prompt: str,
+        event_sink: EventSink,
+    ) -> Any | None:
+        """Generate only the Imagen step for a scene and return the image."""
         await self._emit(event_sink, {
             "type": "drawing_in_progress",
             "scene_id": scene_id,
         })
+        return await self._generate_image(scene_id, image_prompt, event_sink)
 
-        # 2) Generate image first; Veo consumes it as reference when available.
-        imagen_image = await self._generate_image(scene_id, image_prompt, event_sink)
-
-        # 3) Generate video using image-to-video when possible, else text-only.
+    async def generate_video_only(
+        self,
+        *,
+        scene_id: str,
+        video_prompt: str,
+        event_sink: EventSink,
+        imagen_image: Any | None = None,
+    ) -> None:
+        """Generate only the Veo step for a scene."""
         await self._generate_video(
             scene_id,
             video_prompt,
