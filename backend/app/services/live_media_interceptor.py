@@ -97,6 +97,21 @@ class MediaToolCallInterceptingStream:
 
     async def _emit_media_event(self, event: dict[str, Any]) -> None:
         self._queue.put_nowait(event)
+        await self._notify_model_of_media(event)
+
+    async def _notify_model_of_media(self, event: dict[str, Any]) -> None:
+        event_type = event.get("type")
+        scene_id = event.get("scene_id", "unknown")
+        if event_type == "media.image.created":
+            msg = f"[SYSTEM: Image generated successfully for {scene_id} and is now visible to the child. React warmly in character.]"
+        elif event_type == "media.video.created":
+            msg = f"[SYSTEM: Video generated successfully for {scene_id} and is now visible to the child. Celebrate this moment warmly in character. Do not start a new story.]"
+        else:
+            return
+        try:
+            await self._base_stream.send_text(msg)
+        except Exception:
+            logger.debug("Failed to send media awareness text for %s", event_type, exc_info=True)
 
     async def _orchestrate_scene(self, *, scene_id: str, image_prompt: str, video_prompt: str) -> None:
         debug_tracer.log_debug(
