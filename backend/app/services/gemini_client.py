@@ -84,11 +84,10 @@ class AdkGeminiLiveStream:
         from google.genai import types
 
         self._queue = LiveRequestQueue()
-        self._run_config = RunConfig(
-            streaming_mode=StreamingMode.BIDI,
-            response_modalities=[types.Modality.AUDIO],
-            output_audio_transcription=types.AudioTranscriptionConfig(),
-            input_audio_transcription=types.AudioTranscriptionConfig(),
+        self._run_config = build_live_run_config(
+            run_config_cls=RunConfig,
+            streaming_mode_bidi=StreamingMode.BIDI,
+            types_module=types,
         )
         await self._session_service.create_session(
             app_name=self._app_name,
@@ -304,6 +303,15 @@ class GeminiLiveClient:
         if hasattr(stream, "__await__"):
             stream = await stream
         return stream
+
+
+def build_live_run_config(*, run_config_cls: Any, streaming_mode_bidi: Any, types_module: Any) -> Any:
+    return run_config_cls(
+        streaming_mode=streaming_mode_bidi,
+        response_modalities=[types_module.Modality.AUDIO],
+        output_audio_transcription=types_module.AudioTranscriptionConfig(),
+        input_audio_transcription=types_module.AudioTranscriptionConfig(),
+    )
 
 
 def build_agent_instruction(*, native_tools_enabled: bool) -> str:

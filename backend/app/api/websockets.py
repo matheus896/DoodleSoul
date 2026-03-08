@@ -9,6 +9,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.realtime.audio_protocol import AudioFormatError
 from app.realtime.bridge import run_duplex_bridge
+from app.realtime.bridge_metrics import BridgeMetrics
+from app.services import debug_tracer
 from app.services.live_client_factory import build_live_client
 from app.services.live_media_interceptor import maybe_wrap_live_client_with_media_orchestrator
 
@@ -49,6 +51,44 @@ def _is_retryable_provider_startup_error(error: Exception, *, elapsed_s: float, 
     return any(token in message for token in retryable_tokens)
 
 
+def _extract_provider_error_code(error: Exception) -> str | None:
+    message = str(error).lower()
+    for code in ("1008", "1011"):
+        if code in message:
+            return code
+    return None
+
+
+def _build_provider_failure_context(
+    error: Exception,
+    *,
+    elapsed_s: float,
+    attempt: int,
+    bridge_metrics: BridgeMetrics,
+    will_retry: bool,
+) -> dict[str, object]:
+    if elapsed_s > _RETRYABLE_STARTUP_WINDOW_S:
+        classification = "provider_runtime_failure"
+        retry_context = "outside_startup_window"
+    elif will_retry:
+        classification = "provider_startup_failure"
+        retry_context = "startup_retry"
+    else:
+        classification = "provider_startup_failure"
+        retry_context = "startup_retry_exhausted"
+
+    return {
+        "classification": classification,
+        "error_origin": "provider_live_path",
+        "provider_error_code": _extract_provider_error_code(error),
+        "attempt": attempt + 1,
+        "max_attempts": _MAX_BRIDGE_ATTEMPTS,
+        "elapsed_s": round(elapsed_s, 3),
+        "retry_context": retry_context,
+        "bridge_health": bridge_metrics.snapshot(),
+    }
+
+
 @router.websocket("/ws/live/{session_id}")
 async def ws_live(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
@@ -57,8 +97,14 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
     for attempt in range(_MAX_BRIDGE_ATTEMPTS):
         base_client = build_live_client()
         client = maybe_wrap_live_client_with_media_orchestrator(client=base_client)
+        bridge_metrics = BridgeMetrics()
         try:
-            await run_duplex_bridge(websocket=websocket, gemini_client=client, session_id=session_id)
+            await run_duplex_bridge(
+                websocket=websocket,
+                gemini_client=client,
+                session_id=session_id,
+                metrics=bridge_metrics,
+            )
             return
         except AudioFormatError as error:
             try:
@@ -77,7 +123,28 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
             return
         except Exception as error:
             elapsed_s = time.monotonic() - session_start
-            if _is_retryable_provider_startup_error(error, elapsed_s=elapsed_s, attempt=attempt):
+            retryable_startup_error = _is_retryable_provider_startup_error(
+                error,
+                elapsed_s=elapsed_s,
+                attempt=attempt,
+            )
+
+            if _is_provider_live_path_error(error):
+                failure_context = _build_provider_failure_context(
+                    error,
+                    elapsed_s=elapsed_s,
+                    attempt=attempt,
+                    bridge_metrics=bridge_metrics,
+                    will_retry=retryable_startup_error,
+                )
+                debug_tracer.log_debug(
+                    event_type="provider_live_failure",
+                    source="websocket",
+                    session_id=session_id,
+                    **failure_context,
+                )
+
+            if retryable_startup_error:
                 logger.warning(
                     "Retrying ws_live startup after provider/live-path error session_id=%s attempt=%s elapsed_s=%.3f",
                     session_id,
@@ -88,7 +155,15 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
                 continue
 
             if _is_provider_live_path_error(error):
-                logger.exception("Provider/live-path failure in ws_live session_id=%s", session_id)
+                logger.exception(
+                    "Provider/live-path failure in ws_live session_id=%s classification=%s provider_error_code=%s elapsed_s=%.3f retry_context=%s bridge_health=%s",
+                    session_id,
+                    failure_context["classification"],
+                    failure_context["provider_error_code"],
+                    failure_context["elapsed_s"],
+                    failure_context["retry_context"],
+                    failure_context["bridge_health"],
+                )
             else:
                 logger.exception("Unhandled error in ws_live session_id=%s", session_id)
             await _safe_close(websocket, code=1011)

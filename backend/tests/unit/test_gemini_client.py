@@ -1,9 +1,12 @@
 """Tests for gemini_client.py — ADK tool stubs and function-call translation."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.services.gemini_client import (
     AdkGeminiLiveStream,
     build_agent_instruction,
+    build_live_run_config,
     generate_image,
     generate_video,
 )
@@ -241,6 +244,36 @@ def test_translate_text_tool_marker_from_output_transcription() -> None:
     assert result[0]["tool"] == "generate_video"
     assert result[0]["scene_id"] == "scene-t2"
     assert result[0]["args"]["video_prompt"] == "gentle motion"
+
+
+def test_build_live_run_config_uses_current_default_vad_behavior() -> None:
+    created_audio_configs: list[object] = []
+
+    class FakeAudioTranscriptionConfig:
+        def __init__(self) -> None:
+            created_audio_configs.append(self)
+
+    class FakeRunConfig:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    fake_types = SimpleNamespace(
+        Modality=SimpleNamespace(AUDIO="audio"),
+        AudioTranscriptionConfig=FakeAudioTranscriptionConfig,
+    )
+
+    config = build_live_run_config(
+        run_config_cls=FakeRunConfig,
+        streaming_mode_bidi="bidi-mode",
+        types_module=fake_types,
+    )
+
+    assert config.kwargs["streaming_mode"] == "bidi-mode"
+    assert config.kwargs["response_modalities"] == ["audio"]
+    assert len(created_audio_configs) == 2
+    assert config.kwargs["output_audio_transcription"] is created_audio_configs[0]
+    assert config.kwargs["input_audio_transcription"] is created_audio_configs[1]
+    assert "realtime_input_config" not in config.kwargs
 
 
 def test_translate_text_tool_marker_inline_multiple_calls() -> None:
