@@ -210,6 +210,37 @@ html {
   color: var(--color-indigo-300);
 }
 
+.file-input {
+  width: 100%;
+  padding: var(--space-2);
+  border-radius: var(--radius-xl);
+  border: 2px solid var(--color-indigo-100);
+  background-color: var(--color-white);
+  color: var(--color-indigo-950);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+}
+
+.file-input::file-selector-button {
+  margin-right: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-xl);
+  background-color: var(--color-indigo-600);
+  color: var(--color-white);
+  font-family: var(--font-display);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.file-input-hint {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--color-indigo-800);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
 /* ── 10. Consent Label ──
    Tailwind was: "flex items-center gap-2 mb-4 bg-indigo-50 p-3 rounded-xl border border-indigo-100 cursor-pointer hover:bg-indigo-100 transition-colors"
    NFR11: min 44x44px hit area

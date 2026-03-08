@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { extractPcmAudioChunksFromAdkEvent } from "./audio/adkEventAudio";
 import { decodePcm16StreamChunk } from "./audio/pcm16Stream";
@@ -40,13 +40,47 @@ type AppWindow = Window & {
   __animismDebugRing?: () => ReturnType<typeof getDebugRing>;
 };
 
-const STARTUP_DRAWING_PLACEHOLDER_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgQfM9tYAAAAASUVORK5CYII=";
+interface SelectedDrawing {
+  imageBase64: string;
+  mimeType: string;
+  fileName: string;
+}
+
+const DRAWING_REQUIRED_MESSAGE = "Capture or choose the drawing before starting.";
+const INVALID_DRAWING_MESSAGE = "Select a valid image file for the drawing.";
+const DRAWING_READ_ERROR_MESSAGE = "Could not read the drawing image. Please try again.";
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+}
+
+async function readDrawingFile(file: File): Promise<SelectedDrawing> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("invalid_image_type");
+  }
+
+  const buffer = await file.arrayBuffer();
+
+  return {
+    imageBase64: bytesToBase64(new Uint8Array(buffer)),
+    mimeType: file.type || "image/jpeg",
+    fileName: file.name,
+  };
+}
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>("idle");
   const [caregiverConsent, setCaregiverConsent] = useState(false);
   const [childName, setChildName] = useState("");
+  const [selectedDrawing, setSelectedDrawing] = useState<SelectedDrawing | null>(null);
   const [initialGreeting, setInitialGreeting] = useState("");
   const [actionMessage, setActionMessage] = useState("");
 
@@ -100,6 +134,32 @@ export default function App() {
     metricsRef.current.totalEnqueuedSamples += samples.length;
   };
 
+  const handleDrawingChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      setSelectedDrawing(null);
+      return;
+    }
+
+    try {
+      const drawing = await readDrawingFile(file);
+      setSelectedDrawing(drawing);
+      if (actionMessage) {
+        setActionMessage("");
+      }
+      setAppState((current) => (current === "error" ? "idle" : current));
+    } catch (error) {
+      setSelectedDrawing(null);
+      setAppState("error");
+      setActionMessage(
+        error instanceof Error && error.message === "invalid_image_type"
+          ? INVALID_DRAWING_MESSAGE
+          : DRAWING_READ_ERROR_MESSAGE
+      );
+    }
+  };
+
   const start = async () => {
     if (appState !== "idle" && appState !== "error") {
       return;
@@ -109,6 +169,12 @@ export default function App() {
     if (!consentValidation.ok) {
       setAppState("error");
       setActionMessage(consentValidation.message);
+      return;
+    }
+
+    if (!selectedDrawing) {
+      setAppState("error");
+      setActionMessage(DRAWING_REQUIRED_MESSAGE);
       return;
     }
 
@@ -132,8 +198,8 @@ export default function App() {
       try {
         const personaResult = await derivePersonaFromDrawing({
           sessionId,
-          drawingImageBase64: STARTUP_DRAWING_PLACEHOLDER_BASE64,
-          drawingMimeType: "image/png",
+          drawingImageBase64: selectedDrawing.imageBase64,
+          drawingMimeType: selectedDrawing.mimeType,
           childContext: normalizedChildName
             ? { childName: normalizedChildName }
             : undefined,
@@ -337,6 +403,24 @@ export default function App() {
             ></div>
           )}
         </div>
+
+        <label className="input-label">
+          <span className="input-label-text">Drawing Photo</span>
+          <input
+            className="file-input"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(event) => {
+              void handleDrawingChange(event);
+            }}
+          />
+          <span aria-live="polite" className="file-input-hint">
+            {selectedDrawing
+              ? `Ready to wake up: ${selectedDrawing.fileName}`
+              : "Use the camera or choose a photo of the drawing."}
+          </span>
+        </label>
 
         <label className="input-label">
           <span className="input-label-text">Child's Name (optional)</span>
