@@ -275,6 +275,38 @@ async def test_debug_logs_tool_call_recognized_when_enabled(monkeypatch, caplog)
 
 
 @pytest.mark.asyncio
+async def test_debug_logs_media_awareness_sent_when_enabled(monkeypatch, caplog) -> None:
+    """When debug on, successful model awareness injection is logged once per media event."""
+    monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "generate_image",
+                "scene_id": "scene-aware",
+                "prompt": "a calm blue robot",
+            }
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+    )
+
+    with caplog.at_level("INFO", logger="app.services.debug_tracer"):
+        await _collect_events(stream)
+
+    assert any(
+        "media_awareness_sent" in record.message
+        and "scene-aware" in record.message
+        and "media.image.created" in record.message
+        for record in caplog.records
+    ), f"Expected 'media_awareness_sent' in logs. Got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
 async def test_debug_logs_tool_call_blocked_by_session_lock_when_enabled(monkeypatch, caplog) -> None:
     """When ANIMISM_DEBUG_MEDIA=1, a second tool_call logs 'tool_call_blocked_session_lock'."""
     monkeypatch.setenv("ANIMISM_DEBUG_MEDIA", "1")

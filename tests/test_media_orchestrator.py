@@ -36,6 +36,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.media_orchestrator import (  # noqa: E402
+    DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS,
+    DEFAULT_VEO_POLL_INTERVAL_SECONDS,
     MediaOrchestrator,
     PromptBundle,
     build_scene_prompts,
@@ -392,6 +394,68 @@ async def test_v33_media_delayed_emitted_at_timeout():
     assert len(delayed) >= 1, f"Expected media_delayed event, got types: {[e['type'] for e in events]}"
     assert delayed[0]["scene_id"] == "scene-delayed"
     assert "elapsed_seconds" in delayed[0]
+
+
+def test_v33_default_video_timing_matches_low_risk_day9_plan() -> None:
+    """Default Veo timing is lowered to improve perceived progress without contract changes."""
+    client = FakeGenaiClient()
+    orchestrator = MediaOrchestrator(client=client)
+
+    assert DEFAULT_VEO_POLL_INTERVAL_SECONDS == 3.0
+    assert DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS == 18.0
+    assert orchestrator._poll_interval_s == DEFAULT_VEO_POLL_INTERVAL_SECONDS
+    assert orchestrator._fallback_timeout_s == DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_v33_logs_video_phase_timing_with_single_debug_tracer() -> None:
+    """Happy-path video phases are instrumented through debug_tracer with elapsed timing."""
+    client = FakeGenaiClient(veo_polls=4, veo_poll_delay_s=0.001)
+    orchestrator = MediaOrchestrator(
+        client=client,
+        poll_interval_s=0.02,
+        fallback_timeout_s=0.03,
+    )
+
+    events: list[dict[str, Any]] = []
+    with patch("app.services.media_orchestrator.debug_tracer.log_debug") as log_debug:
+        await orchestrator.generate_video_only(
+            scene_id="scene-phase-trace",
+            video_prompt="Robot walks slowly",
+            event_sink=events.append,
+        )
+
+    phase_calls = [
+        kwargs
+        for _, kwargs in log_debug.call_args_list
+        if kwargs.get("event_type") in {
+            "video_generation_started",
+            "veo_operation_created",
+            "veo_polling_started",
+            "veo_fallback_emitted",
+            "veo_video_ready_emitted",
+        }
+    ]
+    phase_event_types = [call["event_type"] for call in phase_calls]
+
+    assert phase_event_types == [
+        "video_generation_started",
+        "veo_operation_created",
+        "veo_polling_started",
+        "veo_fallback_emitted",
+        "veo_video_ready_emitted",
+    ]
+
+    created_call = next(call for call in phase_calls if call["event_type"] == "veo_operation_created")
+    fallback_call = next(call for call in phase_calls if call["event_type"] == "veo_fallback_emitted")
+    ready_call = next(call for call in phase_calls if call["event_type"] == "veo_video_ready_emitted")
+
+    assert created_call["scene_id"] == "scene-phase-trace"
+    assert created_call["poll_interval_s"] == 0.02
+    assert created_call["fallback_timeout_s"] == 0.03
+    assert fallback_call["elapsed_s"] >= 0.03
+    assert ready_call["elapsed_s"] >= fallback_call["elapsed_s"]
+    assert [event["type"] for event in events] == ["media_delayed", "media.video.created"]
 
 
 @pytest.mark.asyncio

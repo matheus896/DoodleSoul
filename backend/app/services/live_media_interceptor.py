@@ -128,6 +128,12 @@ class MediaToolCallInterceptingStream:
             return
         try:
             await self._base_stream.send_text(msg)
+            debug_tracer.log_debug(
+                event_type="media_awareness_sent",
+                source="interceptor",
+                scene_id=scene_id,
+                media_event_type=event_type,
+            )
         except Exception:
             logger.debug("Failed to send media awareness text for %s", event_type, exc_info=True)
 

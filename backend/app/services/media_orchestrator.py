@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 # Default model identifiers (match existing test fixtures)
 IMAGEN_MODEL = "imagen-4.0-generate-001"
 VEO_MODEL = "veo-3.0-fast-generate-001"
+DEFAULT_VEO_POLL_INTERVAL_SECONDS = 3.0
+DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS = 10.0
 
 # Frontend media contract defaults (Epic 3 parser requirements)
 DEFAULT_IMAGE_WIDTH = 1024
@@ -116,8 +118,8 @@ class MediaOrchestrator:
         self,
         client: Any,
         *,
-        poll_interval_s: float = 5.0,
-        fallback_timeout_s: float = 30.0,
+        poll_interval_s: float = DEFAULT_VEO_POLL_INTERVAL_SECONDS,
+        fallback_timeout_s: float = DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS,
         output_dir: Path | None = None,
         asset_store: AssetStore | None = None,
         imagen_model: str = IMAGEN_MODEL,
@@ -254,6 +256,12 @@ class MediaOrchestrator:
         imagen_image: Any | None = None,
     ) -> None:
         """Start Veo, poll with fallback timeout, emit events."""
+        video_start_time = time.monotonic()
+        self._log_video_phase(
+            event_type="video_generation_started",
+            scene_id=scene_id,
+            start_time=video_start_time,
+        )
         try:
             operation = await asyncio.to_thread(
                 self._client.models.generate_videos,
@@ -265,11 +273,28 @@ class MediaOrchestrator:
             logger.exception("Veo generation start failed for scene %s", scene_id)
             return
 
-        start_time = time.monotonic()
+        self._log_video_phase(
+            event_type="veo_operation_created",
+            scene_id=scene_id,
+            start_time=video_start_time,
+            poll_interval_s=self._poll_interval_s,
+            fallback_timeout_s=self._fallback_timeout_s,
+        )
+
+        start_time = video_start_time
         fallback_emitted = False
+        poll_count = 0
+
+        self._log_video_phase(
+            event_type="veo_polling_started",
+            scene_id=scene_id,
+            start_time=video_start_time,
+            poll_interval_s=self._poll_interval_s,
+        )
 
         while not operation.done:
             await asyncio.sleep(self._poll_interval_s)
+            poll_count += 1
 
             elapsed = time.monotonic() - start_time
 
@@ -281,6 +306,13 @@ class MediaOrchestrator:
                     "scene_id": scene_id,
                     "elapsed_seconds": round(elapsed, 1),
                 })
+                self._log_video_phase(
+                    event_type="veo_fallback_emitted",
+                    scene_id=scene_id,
+                    start_time=video_start_time,
+                    elapsed_s=round(elapsed, 3),
+                    poll_count=poll_count,
+                )
                 logger.info(
                     "Veo fallback timeout for scene %s at %.1fs",
                     scene_id, elapsed,
@@ -337,8 +369,34 @@ class MediaOrchestrator:
             "url": url,
             "duration_seconds": DEFAULT_VIDEO_DURATION_SECONDS,
         })
+        self._log_video_phase(
+            event_type="veo_video_ready_emitted",
+            scene_id=scene_id,
+            start_time=video_start_time,
+            poll_count=poll_count,
+            url=url,
+        )
 
     # ── Helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _log_video_phase(
+        *,
+        event_type: str,
+        scene_id: str,
+        start_time: float,
+        elapsed_s: float | None = None,
+        **extra: Any,
+    ) -> None:
+        if elapsed_s is None:
+            elapsed_s = round(max(time.monotonic() - start_time, 0.0), 3)
+        debug_tracer.log_debug(
+            event_type=event_type,
+            source="orchestrator",
+            scene_id=scene_id,
+            elapsed_s=elapsed_s,
+            **extra,
+        )
 
     @staticmethod
     async def _emit(sink: EventSink, event: MediaEvent) -> None:
