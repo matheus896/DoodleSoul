@@ -37,7 +37,7 @@ def test_derive_endpoint_uses_vision_deriver_when_initialized() -> None:
         "fallback_reason": None,
         "voice_traits": ["cheerful", "energetic"],
         "personality_traits": ["adventurous", "friendly"],
-        "greeting_text": "Oi Luna, eu sou o Drago do seu desenho!",
+        "greeting_text": "Hi Luna, I am Drago from your drawing!",
     }
 
     mock_deriver = MagicMock()
@@ -58,7 +58,7 @@ def test_derive_endpoint_uses_vision_deriver_when_initialized() -> None:
     assert payload["status"] == "ok"
     assert payload["data"]["persona_source"] == "drawing_derived"
     assert "cheerful" in payload["data"]["voice_traits"]
-    assert payload["data"]["greeting_text"] == "Oi Luna, eu sou o Drago do seu desenho!"
+    assert payload["data"]["greeting_text"] == "Hi Luna, I am Drago from your drawing!"
     mock_deriver.derive.assert_awaited_once()
 
 

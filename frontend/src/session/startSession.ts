@@ -35,7 +35,7 @@ export function validateConsentForStart(
   if (!caregiverConsent) {
     return {
       ok: false,
-      message: "Confirme o consentimento para iniciar a sessao.",
+      message: "Please confirm consent before starting the session.",
     };
   }
   return { ok: true };
@@ -84,7 +84,7 @@ export async function requestSessionStart(apiBaseUrl?: string): Promise<string> 
     const message =
       "error" in payload && payload.error.message
         ? payload.error.message
-        : "Falha ao iniciar sessao.";
+        : "Failed to start session.";
     throw new Error(message);
   }
 

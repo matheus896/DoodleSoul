@@ -113,7 +113,7 @@ def _deterministic_fallback_payload(
             fallback_reason="derivation_timeout",
             voice_traits=["gentle", "warm"],
             personality_traits=["calm", "supportive"],
-            greeting_text="Oi, vamos brincar juntos!",
+            greeting_text="Hi, let's play together!",
         )
 
     child_name = None
@@ -127,7 +127,7 @@ def _deterministic_fallback_payload(
         fallback_reason=None,
         voice_traits=["playful", "friendly"],
         personality_traits=["curious", "kind"],
-        greeting_text=f"Oi{name_fragment}, sou seu amigo do desenho!",
+        greeting_text=f"Hi{name_fragment}, I'm your friend from the drawing!",
     )
 
 
@@ -166,7 +166,7 @@ async def start_session(request: StartSessionRequest):
                 "status": "error",
                 "error": {
                     "code": "consent_required",
-                    "message": "Confirme o consentimento do cuidador para iniciar a sessao.",
+                    "message": "Confirm caregiver consent before starting the session.",
                 },
             },
         )
@@ -194,7 +194,7 @@ async def derive_persona(session_id: str, request: PersonaDerivationRequest):
                 "status": "error",
                 "error": {
                     "code": "session_not_found",
-                    "message": "Sessao nao encontrada para derivacao de persona.",
+                    "message": "Session not found for persona derivation.",
                 },
             },
         )

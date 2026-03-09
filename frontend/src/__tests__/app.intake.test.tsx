@@ -170,11 +170,11 @@ beforeEach(() => {
   buildLiveWebSocketUrlMock.mockReturnValue("ws://example.test/ws/live/session-123");
   validateConsentForStartMock.mockImplementation((caregiverConsent: boolean) => {
     if (!caregiverConsent) {
-      return { ok: false, message: "Confirme o consentimento para iniciar a sessao." };
+      return { ok: false, message: "Please confirm consent before starting the session." };
     }
     return { ok: true };
   });
-  derivePersonaFromDrawingMock.mockResolvedValue({ greetingText: "Oi, Luna!" });
+  derivePersonaFromDrawingMock.mockResolvedValue({ greetingText: "Hi, Luna!" });
 
   originalAudioContext = globalThis.AudioContext;
   originalAudioWorkletNode = globalThis.AudioWorkletNode;
@@ -293,7 +293,7 @@ describe("App drawing intake", () => {
     expect(order).toEqual(["session_start", "persona_derivation_started"]);
     expect(buildLiveWebSocketUrlMock).not.toHaveBeenCalled();
 
-    derivation.resolve({ greetingText: "Oi, Luna!" });
+    derivation.resolve({ greetingText: "Hi, Luna!" });
     await flushPromises();
 
     expect(order).toEqual([

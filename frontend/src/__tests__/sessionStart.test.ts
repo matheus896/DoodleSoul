@@ -15,7 +15,7 @@ describe("validateConsentForStart", () => {
     const result = validateConsentForStart(false);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toContain("consentimento");
+      expect(result.message).toContain("consent");
     }
   });
 });

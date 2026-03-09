@@ -27,13 +27,13 @@ Return ONLY a valid JSON object with exactly these fields:
 {
   "voice_traits": ["trait1", "trait2"],
   "personality_traits": ["trait1", "trait2"],
-  "greeting_text": "A short, warm greeting in Portuguese (max 2 sentences). If a child_name is provided, include it."
+    "greeting_text": "A short, warm greeting in English (max 2 sentences). If a child_name is provided, include it."
 }
 
 Rules:
 - voice_traits: 2-4 descriptive adjectives for the character's voice (e.g. "cheerful", "gentle", "energetic").
 - personality_traits: 2-4 descriptive adjectives for the character's personality (e.g. "adventurous", "kind", "curious").
-- greeting_text: A warm greeting in Portuguese referencing something from the drawing. If the child's name is provided below, include it.
+- greeting_text: A warm greeting in English referencing something from the drawing. If the child's name is provided below, include it.
 - Do NOT wrap the JSON in markdown code fences.
 - Do NOT include any text outside the JSON object.
 """
@@ -56,7 +56,7 @@ def _fallback_payload(reason: str) -> PersonaPayload:
         fallback_reason=reason,
         voice_traits=["gentle", "warm"],
         personality_traits=["calm", "supportive"],
-        greeting_text="Oi, vamos brincar juntos!",
+        greeting_text="Hi, let's play together!",
     )
 
 

@@ -11,14 +11,14 @@ def test_store_persona_and_retrieve() -> None:
         "s1",
         voice_traits=["playful", "friendly"],
         personality_traits=["curious", "kind"],
-        greeting_text="Oi, sou seu amigo!",
+        greeting_text="Hi, I'm your friend!",
     )
 
     persona = store.get_persona("s1")
     assert persona is not None
     assert persona.voice_traits == ["playful", "friendly"]
     assert persona.personality_traits == ["curious", "kind"]
-    assert persona.greeting_text == "Oi, sou seu amigo!"
+    assert persona.greeting_text == "Hi, I'm your friend!"
 
 
 def test_get_persona_returns_none_for_unknown_session() -> None:

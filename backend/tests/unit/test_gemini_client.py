@@ -326,7 +326,7 @@ def test_build_agent_instruction_replaces_identity_when_persona_provided() -> No
     persona_data = {
         "personality_traits": ["curious", "kind"],
         "voice_traits": ["playful", "friendly"],
-        "greeting_text": "Oi Luna, sou seu amigo do desenho!",
+        "greeting_text": "Hi Luna, I'm your friend from the drawing!",
     }
     instruction = build_agent_instruction(native_tools_enabled=True, persona_data=persona_data)
 
@@ -334,7 +334,7 @@ def test_build_agent_instruction_replaces_identity_when_persona_provided() -> No
     assert "You are Animism" not in instruction
     assert "curious, kind" in instruction
     assert "playful, friendly" in instruction
-    assert "Oi Luna, sou seu amigo do desenho!" in instruction
+    assert "Hi Luna, I'm your friend from the drawing!" in instruction
     assert "Never break this character" in instruction
 
 
@@ -386,13 +386,13 @@ async def test_open_stream_sends_spark_when_persona_data_present() -> None:
     client = GeminiLiveClient(
         model="test-model",
         stream_factory=_factory,
-        persona_data={"greeting_text": "Oi amigo!"},
+        persona_data={"greeting_text": "Hi friend!"},
     )
     result = await client.open_stream("s1")
 
     assert result is fake_stream
     assert len(fake_stream.sent_texts) == 1
-    assert "Oi amigo!" in fake_stream.sent_texts[0]
+    assert "Hi friend!" in fake_stream.sent_texts[0]
 
 
 @pytest.mark.asyncio

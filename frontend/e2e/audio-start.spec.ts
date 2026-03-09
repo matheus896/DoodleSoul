@@ -152,7 +152,7 @@ async function installMediaAndSocketMocks(page: Parameters<typeof test>[0]["page
                 fallback_applied: false,
                 voice_traits: ["playful"],
                 personality_traits: ["kind"],
-                greeting_text: "Oi Luna, sou seu amigo do desenho!"
+                greeting_text: "Hi Luna, I'm your friend from the drawing!"
               }
             })
           };
@@ -187,11 +187,16 @@ test("start flow transitions to live state", async ({ page }) => {
   await installMediaAndSocketMocks(page, "open");
   await page.goto("/");
 
+  await page.getByLabel("Drawing Photo").setInputFiles({
+    name: "drawing.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("hello"),
+  });
   await page.getByLabel("Child's Name (optional)").fill("Luna");
   await page.getByRole("checkbox", { name: "Caregiver consent confirmed" }).check();
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByText("Status: Ready!")).toBeVisible();
-  await expect(page.getByText("Greeting: Oi Luna, sou seu amigo do desenho!")).toBeVisible();
+  await expect(page.getByText("Greeting: Hi Luna, I'm your friend from the drawing!")).toBeVisible();
 
   await page.evaluate(() => {
     (window as unknown as { __emitWorkletChunk: (() => void) | null }).__emitWorkletChunk?.();
@@ -224,6 +229,11 @@ test("start flow transitions to error state on websocket failure", async ({ page
   await installMediaAndSocketMocks(page, "error");
   await page.goto("/");
 
+  await page.getByLabel("Drawing Photo").setInputFiles({
+    name: "drawing.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("hello"),
+  });
   await page.getByRole("checkbox", { name: "Caregiver consent confirmed" }).check();
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByText("Status: Error")).toBeVisible();

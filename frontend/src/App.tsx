@@ -208,7 +208,7 @@ export default function App() {
         setInitialGreeting(personaResult.greetingText);
       } catch {
         // Keep startup resilient even if derivation service is temporarily unavailable.
-        setInitialGreeting("Oi, vamos brincar juntos!");
+        setInitialGreeting("Hi, let's play together!");
       }
       const wsUrl = buildLiveWebSocketUrl({
         sessionId,

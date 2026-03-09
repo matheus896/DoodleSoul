@@ -17,7 +17,7 @@ describe("derivePersonaFromDrawing", () => {
           fallback_applied: false,
           voice_traits: ["warm", "playful"],
           personality_traits: ["curious", "kind"],
-          greeting_text: "Oi Luna, sou seu amigo do desenho!",
+          greeting_text: "Hi Luna, I'm your friend from the drawing!",
         },
       }),
     }));
@@ -53,7 +53,7 @@ describe("derivePersonaFromDrawing", () => {
           fallback_reason: "derivation_timeout",
           voice_traits: ["gentle"],
           personality_traits: ["calm"],
-          greeting_text: "Oi, vamos brincar juntos!",
+          greeting_text: "Hi, let's play together!",
         },
       }),
     }));

@@ -55,6 +55,7 @@ def test_persona_derivation_returns_traits_for_valid_drawing() -> None:
     assert persona is not None
     assert persona.voice_traits == ["playful", "friendly"]
     assert persona.personality_traits == ["curious", "kind"]
+    assert persona.greeting_text == "Hi Luna, I'm your friend from the drawing!"
     assert "Luna" in persona.greeting_text
 
 
@@ -87,3 +88,4 @@ def test_persona_derivation_applies_fallback_when_model_times_out() -> None:
     assert persona is not None
     assert persona.voice_traits == ["gentle", "warm"]
     assert persona.personality_traits == ["calm", "supportive"]
+    assert persona.greeting_text == "Hi, let's play together!"

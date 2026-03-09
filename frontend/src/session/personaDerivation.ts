@@ -69,7 +69,7 @@ export async function derivePersonaFromDrawing(
     const message =
       "error" in payload && payload.error.message
         ? payload.error.message
-        : "Falha ao derivar persona.";
+        : "Failed to derive persona.";
     throw new Error(message);
   }
 
