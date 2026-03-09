@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
+from app.services.session_grounding_store import get_session_grounding_store
 from app.services.vision_persona_deriver import VisionPersonaDeriver
 
 logger = logging.getLogger(__name__)
@@ -37,17 +38,6 @@ class InMemoryConsentStore:
         return record
 
 
-class InMemorySessionRegistry:
-    def __init__(self) -> None:
-        self._active_sessions: set[str] = set()
-
-    def add(self, session_id: str) -> None:
-        self._active_sessions.add(session_id)
-
-    def has(self, session_id: str) -> bool:
-        return session_id in self._active_sessions
-
-
 class StartSessionRequest(BaseModel):
     caregiver_consent: bool | None = Field(default=None)
 
@@ -73,10 +63,11 @@ class PersonaDerivationData(BaseModel):
     voice_traits: list[str]
     personality_traits: list[str]
     greeting_text: str
+    bootstrap_ready: bool = False
 
 
 _consent_store = InMemoryConsentStore()
-_session_registry = InMemorySessionRegistry()
+_session_grounding_store = get_session_grounding_store()
 
 # Module-level vision deriver — None by default (deterministic fallback).
 # Only set when init_vision_deriver() is called explicitly (e.g. at app startup).
@@ -182,7 +173,7 @@ async def start_session(request: StartSessionRequest):
 
     session_id = str(uuid4())
     consent_record = _consent_store.add(session_id)
-    _session_registry.add(session_id)
+    _session_grounding_store.register_session(session_id)
     data = StartSessionData(
         session_id=session_id,
         consent_captured=True,
@@ -196,7 +187,7 @@ async def start_session(request: StartSessionRequest):
 
 @router.post("/api/session/{session_id}/persona/derive")
 async def derive_persona(session_id: str, request: PersonaDerivationRequest):
-    if not _session_registry.has(session_id):
+    if not _session_grounding_store.has_session(session_id):
         return JSONResponse(
             status_code=404,
             content={
@@ -214,6 +205,19 @@ async def derive_persona(session_id: str, request: PersonaDerivationRequest):
         request=request,
         deriver=deriver,
     )
+    _session_grounding_store.store_pending_drawing(
+        session_id=session_id,
+        drawing_image_base64=request.drawing_image_base64,
+        drawing_mime_type=request.drawing_mime_type,
+        child_context=request.child_context,
+    )
+    _session_grounding_store.store_persona(
+        session_id,
+        voice_traits=data.voice_traits,
+        personality_traits=data.personality_traits,
+        greeting_text=data.greeting_text,
+    )
+    data.bootstrap_ready = True
     return {
         "status": "ok",
         "data": data.model_dump(),

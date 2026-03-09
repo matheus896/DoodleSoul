@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.gemini_client import (
     AdkGeminiLiveStream,
+    GeminiLiveClient,
     build_agent_instruction,
     build_live_run_config,
     generate_image,
@@ -310,3 +313,97 @@ def test_build_agent_instruction_includes_text_tool_fallback_when_disabled() -> 
 
     assert "[ANIMISM_TOOL_CALL]" in instruction
     assert '"tool":"generate_image"' in instruction
+
+
+def test_build_agent_instruction_is_deterministic_without_persona_data() -> None:
+    instruction_a = build_agent_instruction(native_tools_enabled=True, persona_data=None)
+    instruction_b = build_agent_instruction(native_tools_enabled=True, persona_data=None)
+    assert instruction_a == instruction_b
+    assert "You are Animism" in instruction_a
+
+
+def test_build_agent_instruction_replaces_identity_when_persona_provided() -> None:
+    persona_data = {
+        "personality_traits": ["curious", "kind"],
+        "voice_traits": ["playful", "friendly"],
+        "greeting_text": "Oi Luna, sou seu amigo do desenho!",
+    }
+    instruction = build_agent_instruction(native_tools_enabled=True, persona_data=persona_data)
+
+    assert instruction.startswith("You are a magical imaginary friend")
+    assert "You are Animism" not in instruction
+    assert "curious, kind" in instruction
+    assert "playful, friendly" in instruction
+    assert "Oi Luna, sou seu amigo do desenho!" in instruction
+    assert "Never break this character" in instruction
+
+
+def test_build_agent_instruction_persona_identity_comes_before_rules() -> None:
+    persona_data = {
+        "personality_traits": ["brave"],
+        "voice_traits": ["gentle"],
+        "greeting_text": "Hello!",
+    }
+    instruction = build_agent_instruction(native_tools_enabled=True, persona_data=persona_data)
+
+    identity_pos = instruction.index("magical imaginary friend")
+    rules_pos = instruction.index("ask for explicit permission")
+    assert identity_pos < rules_pos
+
+
+def test_build_agent_instruction_persona_with_text_fallback() -> None:
+    persona_data = {
+        "personality_traits": ["brave"],
+        "voice_traits": ["gentle"],
+        "greeting_text": "Hello!",
+    }
+    instruction = build_agent_instruction(native_tools_enabled=False, persona_data=persona_data)
+
+    assert "magical imaginary friend" in instruction
+    assert "[ANIMISM_TOOL_CALL]" in instruction
+
+
+# ---------------------------------------------------------------------------
+# Conversational Spark tests
+# ---------------------------------------------------------------------------
+
+
+class FakeStream:
+    def __init__(self) -> None:
+        self.sent_texts: list[str] = []
+
+    async def send_text(self, text: str) -> None:
+        self.sent_texts.append(text)
+
+
+@pytest.mark.asyncio
+async def test_open_stream_sends_spark_when_persona_data_present() -> None:
+    fake_stream = FakeStream()
+
+    async def _factory(*, model: str, session_id: str):
+        return fake_stream
+
+    client = GeminiLiveClient(
+        model="test-model",
+        stream_factory=_factory,
+        persona_data={"greeting_text": "Oi amigo!"},
+    )
+    result = await client.open_stream("s1")
+
+    assert result is fake_stream
+    assert len(fake_stream.sent_texts) == 1
+    assert "Oi amigo!" in fake_stream.sent_texts[0]
+
+
+@pytest.mark.asyncio
+async def test_open_stream_does_not_send_spark_without_persona_data() -> None:
+    fake_stream = FakeStream()
+
+    async def _factory(*, model: str, session_id: str):
+        return fake_stream
+
+    client = GeminiLiveClient(model="test-model", stream_factory=_factory)
+    result = await client.open_stream("s2")
+
+    assert result is fake_stream
+    assert fake_stream.sent_texts == []

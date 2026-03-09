@@ -273,11 +273,11 @@ def get_live_model() -> str:
     return os.getenv("DEMO_AGENT_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025")
 
 
-def build_live_client() -> GeminiLiveClient:
+def build_live_client(*, persona_data: dict | None = None) -> GeminiLiveClient:
     load_env_once()
     live_mode = os.getenv("ANIMISM_LIVE_MODE", "adk").lower()
     if live_mode == "pilot":
-        return GeminiLiveClient(model=get_live_model(), stream_factory=_pilot_stream_factory)
+        return GeminiLiveClient(model=get_live_model(), stream_factory=_pilot_stream_factory, persona_data=persona_data)
     if live_mode == "mock":
-        return GeminiLiveClient(model=get_live_model(), stream_factory=_mock_stream_factory)
-    return GeminiLiveClient(model=get_live_model())
+        return GeminiLiveClient(model=get_live_model(), stream_factory=_mock_stream_factory, persona_data=persona_data)
+    return GeminiLiveClient(model=get_live_model(), persona_data=persona_data)

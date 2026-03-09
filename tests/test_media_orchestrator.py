@@ -365,6 +365,33 @@ def test_v32_prompts_differ_for_image_and_video():
     assert prompts.image_prompt != prompts.video_prompt
 
 
+def test_v32_prompts_reuse_authoritative_bootstrap_context():
+    """Bootstrap context is the authoritative source for drawing-grounded media prompts."""
+    prompts = build_scene_prompts(
+        visual_traits=["should-not-win"],
+        personality_traits=["should-not-win"],
+        child_context="generic scene",
+        bootstrap_context={
+            "character_name": "Blue Robot",
+            "drawing_summary": "A blue robot in a park.",
+            "visual_traits": ["blue", "round eyes"],
+            "voice_traits": ["gentle", "bright"],
+            "personality_traits": ["kind", "curious"],
+            "story_seed": "The robot wants to explore the park.",
+            "first_turn_guidance": "Mention the robot early.",
+            "child_context_summary": "Luna is proud of the robot.",
+            "follow_up_question": "Should we explore together?",
+            "confidence_notes": "",
+        },
+    )
+
+    assert "Blue Robot" in prompts.image_prompt
+    assert "blue" in prompts.image_prompt
+    assert "kind" in prompts.video_prompt
+    assert "explore the park" in prompts.video_prompt
+    assert "should-not-win" not in prompts.image_prompt
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # V3.3 — Resilience & Fallback Visual Validation
 # ══════════════════════════════════════════════════════════════════════════════
@@ -402,7 +429,7 @@ def test_v33_default_video_timing_matches_low_risk_day9_plan() -> None:
     orchestrator = MediaOrchestrator(client=client)
 
     assert DEFAULT_VEO_POLL_INTERVAL_SECONDS == 3.0
-    assert DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS == 18.0
+    assert DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS == 10.0
     assert orchestrator._poll_interval_s == DEFAULT_VEO_POLL_INTERVAL_SECONDS
     assert orchestrator._fallback_timeout_s == DEFAULT_VEO_FALLBACK_TIMEOUT_SECONDS
 

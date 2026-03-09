@@ -59,17 +59,49 @@ def build_scene_prompts(
     visual_traits: list[str] | tuple[str, ...],
     personality_traits: list[str] | tuple[str, ...],
     child_context: str,
+    bootstrap_context: dict[str, Any] | None = None,
 ) -> PromptBundle:
     """Build persona-grounded prompts for Imagen and Veo (V3.2).
 
     Language is kept at Grade-1 level (no words > 12 chars) to comply
     with NFR10 / therapeutic safety guidelines.
     """
+    if bootstrap_context:
+        bootstrap_visual_traits = bootstrap_context.get("visual_traits")
+        if isinstance(bootstrap_visual_traits, list) and bootstrap_visual_traits:
+            visual_traits = tuple(str(value) for value in bootstrap_visual_traits)
+
+        bootstrap_personality_traits = bootstrap_context.get("personality_traits")
+        if isinstance(bootstrap_personality_traits, list) and bootstrap_personality_traits:
+            personality_traits = tuple(str(value) for value in bootstrap_personality_traits)
+
+        story_seed = bootstrap_context.get("story_seed")
+        child_context_summary = bootstrap_context.get("child_context_summary")
+        drawing_summary = bootstrap_context.get("drawing_summary")
+        child_context = str(
+            story_seed
+            or child_context_summary
+            or drawing_summary
+            or child_context
+        )
+
+    character_name = ""
+    drawing_summary = ""
+    if bootstrap_context:
+        character_name = str(bootstrap_context.get("character_name", "")).strip()
+        drawing_summary = str(bootstrap_context.get("drawing_summary", "")).strip()
+
     visual = ", ".join(visual_traits)
     personality = ", ".join(personality_traits)
 
     image_prompt = (
         "A gentle story picture for a child. "
+        f"Character: {character_name}. " if character_name else "A gentle story picture for a child. "
+    )
+    image_prompt += (
+        f"Drawing: {drawing_summary}. " if drawing_summary else ""
+    )
+    image_prompt += (
         f"Traits: {visual}. "
         f"Mood: {personality}. "
         f"Scene: {child_context}. "
@@ -77,6 +109,12 @@ def build_scene_prompts(
     )
     video_prompt = (
         "A short calm story video. "
+        f"Character: {character_name}. " if character_name else "A short calm story video. "
+    )
+    video_prompt += (
+        f"Drawing: {drawing_summary}. " if drawing_summary else ""
+    )
+    video_prompt += (
         f"Same traits: {visual}. "
         f"Same mood: {personality}. "
         f"Story: {child_context}. "

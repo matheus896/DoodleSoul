@@ -263,8 +263,9 @@ class AdkGeminiLiveStream:
 
 
 class GeminiLiveClient:
-    def __init__(self, model: str, stream_factory: Any | None = None) -> None:
+    def __init__(self, model: str, stream_factory: Any | None = None, persona_data: dict | None = None) -> None:
         self.model = model
+        self._persona_data = persona_data
         self._stream_factory = stream_factory or self._build_adk_stream
 
     async def _build_adk_stream(self, *, model: str, session_id: str) -> GeminiLiveStream:
@@ -282,7 +283,10 @@ class GeminiLiveClient:
         agent = Agent(
             name="animism_live_agent",
             model=model,
-            instruction=build_agent_instruction(native_tools_enabled=native_tools_enabled),
+            instruction=build_agent_instruction(
+                native_tools_enabled=native_tools_enabled,
+                persona_data=self._persona_data,
+            ),
             tools=[generate_image, generate_video] if native_tools_enabled else [],
         )
         session_service = InMemorySessionService()
@@ -302,6 +306,15 @@ class GeminiLiveClient:
         stream = self._stream_factory(model=self.model, session_id=session_id)
         if hasattr(stream, "__await__"):
             stream = await stream
+
+        if self._persona_data:
+            greeting = self._persona_data.get("greeting_text")
+            if greeting:
+                await stream.send_text(
+                    f"The session has started and the child is listening. "
+                    f"Greet them immediately in character, using this exact meaning: '{greeting}'"
+                )
+
         return stream
 
 
@@ -314,9 +327,21 @@ def build_live_run_config(*, run_config_cls: Any, streaming_mode_bidi: Any, type
     )
 
 
-def build_agent_instruction(*, native_tools_enabled: bool) -> str:
-    base_instruction = (
-        "You are Animism, a warm and imaginative voice companion for children. "
+def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | None = None) -> str:
+    if persona_data:
+        traits = ", ".join(persona_data.get("personality_traits", []))
+        voice = ", ".join(persona_data.get("voice_traits", []))
+        greeting = persona_data.get("greeting_text", "")
+        identity_block = (
+            f"You are a magical imaginary friend brought to life from a child's drawing. "
+            f"Your personality is: {traits}. Your voice style is: {voice}. "
+            f"Your first words to the child must convey this exact meaning: '{greeting}'. "
+            f"Never break this character."
+        )
+    else:
+        identity_block = "You are Animism, a warm and imaginative voice companion for children."
+
+    rules_block = (
         "Before any media generation, ask for explicit permission in simple words and wait for a clear yes. "
         "You may run at most one story generation cycle per session. "
         "Do not open a second story and do not create a second scene_id. "
@@ -327,6 +352,8 @@ def build_agent_instruction(*, native_tools_enabled: bool) -> str:
         "You may call generate_video once for the same scene_id. "
         "If child intent is short or ambiguous, keep talking and ask a clarifying question instead of calling tools."
     )
+
+    base_instruction = f"{identity_block}\n\n{rules_block}"
 
     if native_tools_enabled:
         return base_instruction

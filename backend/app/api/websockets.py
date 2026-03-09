@@ -13,6 +13,7 @@ from app.realtime.bridge_metrics import BridgeMetrics
 from app.services import debug_tracer
 from app.services.live_client_factory import build_live_client
 from app.services.live_media_interceptor import maybe_wrap_live_client_with_media_orchestrator
+from app.services.session_grounding_store import get_session_grounding_store
 
 
 router = APIRouter()
@@ -94,8 +95,24 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     session_start = time.monotonic()
 
+    store = get_session_grounding_store()
+    persona_ctx = store.get_persona(session_id)
+    persona_data: dict | None = None
+    if persona_ctx is not None:
+        persona_data = {
+            "voice_traits": persona_ctx.voice_traits,
+            "personality_traits": persona_ctx.personality_traits,
+            "greeting_text": persona_ctx.greeting_text,
+        }
+    logger.info(
+        "ws_live session=%s persona_grounded=%s persona_data=%s",
+        session_id,
+        persona_data is not None,
+        persona_data,
+    )
+
     for attempt in range(_MAX_BRIDGE_ATTEMPTS):
-        base_client = build_live_client()
+        base_client = build_live_client(persona_data=persona_data)
         client = maybe_wrap_live_client_with_media_orchestrator(client=base_client)
         bridge_metrics = BridgeMetrics()
         try:

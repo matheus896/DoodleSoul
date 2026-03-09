@@ -6,12 +6,14 @@ from fastapi.staticfiles import StaticFiles
 from app.api.session import init_vision_deriver
 from app.api.session import router as session_router
 from app.api.websockets import router as ws_router
+from app.config.env_loader import load_env_once
 from app.services.asset_store import build_asset_store
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Application lifespan: initialize services at startup."""
+    load_env_once()
     init_vision_deriver()
 
     # Mount the local static assets directory so generated media is publicly

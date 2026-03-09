@@ -128,7 +128,7 @@ class VisionPersonaDeriver:
         contents = [types.Content(role="user", parts=[image_part, text_part])]
 
         response = await asyncio.wait_for(
-            self._client.models.generate_content(
+            self._client.aio.models.generate_content(
                 model=self._model,
                 contents=contents,
             ),

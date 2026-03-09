@@ -4,6 +4,7 @@ import pytest
 
 from app.api import websockets
 from app.realtime.audio_protocol import AudioFormatError
+from app.services.session_grounding_store import get_session_grounding_store
 
 
 class FakeWebSocket:
@@ -28,7 +29,7 @@ async def test_ws_live_retries_once_on_early_provider_1008(monkeypatch) -> None:
     attempts = {"count": 0}
     sleep_calls: list[float] = []
 
-    def _build_client() -> object:
+    def _build_client(*, persona_data=None) -> object:
         return object()
 
     def _wrap_client(*, client: object):
@@ -69,7 +70,7 @@ async def test_ws_live_does_not_retry_1008_outside_startup_window(monkeypatch) -
     ws = FakeWebSocket()
     attempts = {"count": 0}
 
-    def _build_client() -> object:
+    def _build_client(*, persona_data=None) -> object:
         return object()
 
     def _wrap_client(*, client: object):
@@ -109,7 +110,7 @@ async def test_ws_live_logs_structured_provider_runtime_failure_for_late_1008(mo
 
     ws = FakeWebSocket()
 
-    def _build_client() -> object:
+    def _build_client(*, persona_data=None) -> object:
         return object()
 
     def _wrap_client(*, client: object):
@@ -161,7 +162,7 @@ async def test_ws_live_does_not_reclassify_audio_format_error_as_provider_failur
 
     ws = FakeWebSocket()
 
-    def _build_client() -> object:
+    def _build_client(*, persona_data=None) -> object:
         return object()
 
     def _wrap_client(*, client: object):
@@ -186,3 +187,66 @@ async def test_ws_live_does_not_reclassify_audio_format_error_as_provider_failur
     assert not any(
         "provider_live_failure" in record.message for record in caplog.records
     ), f"Unexpected provider failure classification for audio format error: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_ws_live_passes_persona_data_to_build_live_client(monkeypatch) -> None:
+    store = get_session_grounding_store()
+    store.register_session("s-persona")
+    store.store_persona(
+        "s-persona",
+        voice_traits=["playful"],
+        personality_traits=["curious"],
+        greeting_text="Oi amigo!",
+    )
+
+    captured_persona: list[dict | None] = []
+    ws = FakeWebSocket()
+
+    def _build_client(*, persona_data=None) -> object:
+        captured_persona.append(persona_data)
+        return object()
+
+    def _wrap_client(*, client: object):
+        return client
+
+    async def _bridge(*, websocket, gemini_client, session_id: str, metrics=None) -> None:
+        pass
+
+    monkeypatch.setattr(websockets, "build_live_client", _build_client)
+    monkeypatch.setattr(websockets, "maybe_wrap_live_client_with_media_orchestrator", _wrap_client)
+    monkeypatch.setattr(websockets, "run_duplex_bridge", _bridge)
+
+    await websockets.ws_live(ws, "s-persona")
+
+    assert len(captured_persona) == 1
+    pd = captured_persona[0]
+    assert pd is not None
+    assert pd["voice_traits"] == ["playful"]
+    assert pd["personality_traits"] == ["curious"]
+    assert pd["greeting_text"] == "Oi amigo!"
+
+
+@pytest.mark.asyncio
+async def test_ws_live_passes_none_persona_when_session_has_no_persona(monkeypatch) -> None:
+    captured_persona: list[dict | None] = []
+    ws = FakeWebSocket()
+
+    def _build_client(*, persona_data=None) -> object:
+        captured_persona.append(persona_data)
+        return object()
+
+    def _wrap_client(*, client: object):
+        return client
+
+    async def _bridge(*, websocket, gemini_client, session_id: str, metrics=None) -> None:
+        pass
+
+    monkeypatch.setattr(websockets, "build_live_client", _build_client)
+    monkeypatch.setattr(websockets, "maybe_wrap_live_client_with_media_orchestrator", _wrap_client)
+    monkeypatch.setattr(websockets, "run_duplex_bridge", _bridge)
+
+    await websockets.ws_live(ws, "s-unknown-persona")
+
+    assert len(captured_persona) == 1
+    assert captured_persona[0] is None
