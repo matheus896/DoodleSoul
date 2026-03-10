@@ -10,8 +10,10 @@ from app.services.gemini_client import (
     GeminiLiveClient,
     build_agent_instruction,
     build_live_run_config,
+    build_safety_config,
     generate_image,
     generate_video,
+    report_clinical_alert,
 )
 
 
@@ -407,3 +409,178 @@ async def test_open_stream_does_not_send_spark_without_persona_data() -> None:
 
     assert result is fake_stream
     assert fake_stream.sent_texts == []
+
+
+# ---------------------------------------------------------------------------
+# Epic 4 — report_clinical_alert stub tests
+# ---------------------------------------------------------------------------
+
+
+def test_report_clinical_alert_stub_returns_received() -> None:
+    result = report_clinical_alert(
+        primary_emotion="anxiety",
+        trigger="school conflict",
+        recommended_strategy="grounding exercise",
+        risk_level="moderate",
+        child_quote_summary="the monster was sad at school",
+    )
+    assert result["status"] == "received"
+    assert result["primary_emotion"] == "anxiety"
+
+
+def test_report_clinical_alert_stub_preserves_emotion_field() -> None:
+    result = report_clinical_alert(
+        primary_emotion="frustration",
+        trigger="drawing difficulty",
+        recommended_strategy="validation",
+        risk_level="low",
+        child_quote_summary="the monster couldn't do it",
+    )
+    assert result["primary_emotion"] == "frustration"
+    assert result["status"] == "received"
+
+
+# ---------------------------------------------------------------------------
+# Epic 4 — build_safety_config tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_safety_config_returns_four_settings() -> None:
+    created: list[dict] = []
+
+    class FakeSafetySetting:
+        def __init__(self, *, category: str, threshold: str) -> None:
+            created.append({"category": category, "threshold": threshold})
+
+    fake_types = SimpleNamespace(
+        HarmCategory=SimpleNamespace(
+            HARM_CATEGORY_HARASSMENT="harassment",
+            HARM_CATEGORY_HATE_SPEECH="hate_speech",
+            HARM_CATEGORY_SEXUALLY_EXPLICIT="sexually_explicit",
+            HARM_CATEGORY_DANGEROUS_CONTENT="dangerous_content",
+        ),
+        HarmBlockThreshold=SimpleNamespace(BLOCK_ONLY_HIGH="block_only_high"),
+        SafetySetting=FakeSafetySetting,
+    )
+
+    result = build_safety_config(types_module=fake_types)
+
+    assert len(result) == 4
+    assert len(created) == 4
+
+
+def test_build_safety_config_uses_block_only_high_for_all() -> None:
+    created: list[dict] = []
+
+    class FakeSafetySetting:
+        def __init__(self, *, category: str, threshold: str) -> None:
+            created.append({"category": category, "threshold": threshold})
+
+    fake_types = SimpleNamespace(
+        HarmCategory=SimpleNamespace(
+            HARM_CATEGORY_HARASSMENT="harassment",
+            HARM_CATEGORY_HATE_SPEECH="hate_speech",
+            HARM_CATEGORY_SEXUALLY_EXPLICIT="sexually_explicit",
+            HARM_CATEGORY_DANGEROUS_CONTENT="dangerous_content",
+        ),
+        HarmBlockThreshold=SimpleNamespace(BLOCK_ONLY_HIGH="block_only_high"),
+        SafetySetting=FakeSafetySetting,
+    )
+
+    build_safety_config(types_module=fake_types)
+
+    thresholds = {s["threshold"] for s in created}
+    assert thresholds == {"block_only_high"}
+
+
+def test_build_safety_config_covers_all_four_harm_categories() -> None:
+    created: list[dict] = []
+
+    class FakeSafetySetting:
+        def __init__(self, *, category: str, threshold: str) -> None:
+            created.append({"category": category, "threshold": threshold})
+
+    fake_types = SimpleNamespace(
+        HarmCategory=SimpleNamespace(
+            HARM_CATEGORY_HARASSMENT="harassment",
+            HARM_CATEGORY_HATE_SPEECH="hate_speech",
+            HARM_CATEGORY_SEXUALLY_EXPLICIT="sexually_explicit",
+            HARM_CATEGORY_DANGEROUS_CONTENT="dangerous_content",
+        ),
+        HarmBlockThreshold=SimpleNamespace(BLOCK_ONLY_HIGH="block_only_high"),
+        SafetySetting=FakeSafetySetting,
+    )
+
+    build_safety_config(types_module=fake_types)
+
+    categories = {s["category"] for s in created}
+    assert "harassment" in categories
+    assert "hate_speech" in categories
+    assert "sexually_explicit" in categories
+    assert "dangerous_content" in categories
+
+
+def test_build_safety_config_returns_empty_when_types_missing_safety_setting() -> None:
+    fake_types = SimpleNamespace(
+        HarmCategory=SimpleNamespace(HARM_CATEGORY_HARASSMENT="harassment"),
+        HarmBlockThreshold=SimpleNamespace(BLOCK_ONLY_HIGH="block_only_high"),
+        # SafetySetting intentionally absent
+    )
+
+    result = build_safety_config(types_module=fake_types)
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Epic 4 — build_agent_instruction clinical tool tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_agent_instruction_includes_clinical_alert_tool_name() -> None:
+    instruction = build_agent_instruction(native_tools_enabled=True)
+    assert "report_clinical_alert" in instruction
+
+
+def test_build_agent_instruction_clinical_alert_is_silent_from_child() -> None:
+    instruction = build_agent_instruction(native_tools_enabled=True)
+    # Must instruct model to call silently (not tell child)
+    lower = instruction.lower()
+    assert "silently" in lower or "do not tell the child" in lower or "do not mention" in lower
+
+
+def test_build_agent_instruction_clinical_continues_in_character_after_alert() -> None:
+    instruction = build_agent_instruction(native_tools_enabled=True)
+    lower = instruction.lower()
+    assert "continue" in lower or "in character" in lower
+
+
+def test_build_agent_instruction_clinical_text_fallback_marker_included() -> None:
+    instruction = build_agent_instruction(native_tools_enabled=False)
+    assert "report_clinical_alert" in instruction
+    # Clinical tool marker format must be present in fallback mode
+    assert '"tool":"report_clinical_alert"' in instruction
+
+
+def test_translate_text_tool_marker_for_clinical_alert() -> None:
+    """Text marker for report_clinical_alert must be translated in text_fallback mode."""
+    dumped: dict = {
+        "content": {
+            "parts": [
+                {
+                    "text": (
+                        "[ANIMISM_TOOL_CALL] "
+                        '{"tool":"report_clinical_alert","args":{"primary_emotion":"anxiety","trigger":"school","recommended_strategy":"grounding","risk_level":"moderate","child_quote_summary":"scared"}}'
+                    )
+                }
+            ]
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 1
+    ev = result[0]
+    assert ev["type"] == "tool_call"
+    assert ev["tool"] == "report_clinical_alert"
+    assert ev["args"]["primary_emotion"] == "anxiety"
+    assert ev["args"]["trigger"] == "school"

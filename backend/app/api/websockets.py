@@ -22,6 +22,40 @@ logger = logging.getLogger(__name__)
 _RETRYABLE_STARTUP_WINDOW_S = 5.0
 _STARTUP_RETRY_BACKOFF_S = 1.0
 _MAX_BRIDGE_ATTEMPTS = 2
+_INTERNAL_ONLY_EVENT_TYPES = {"clinical_alert", "safety.pivot.triggered"}
+
+
+class ChildSafeWebSocket:
+    def __init__(self, websocket: WebSocket) -> None:
+        self._websocket = websocket
+
+    async def accept(self) -> None:
+        await self._websocket.accept()
+
+    async def close(self, code: int) -> None:
+        await self._websocket.close(code=code)
+
+    async def receive(self) -> dict:
+        return await self._websocket.receive()
+
+    async def send_bytes(self, payload: bytes) -> None:
+        await self._websocket.send_bytes(payload)
+
+    async def send_text(self, payload: str) -> None:
+        try:
+            decoded = json.loads(payload)
+        except json.JSONDecodeError:
+            await self._websocket.send_text(payload)
+            return
+
+        if isinstance(decoded, dict) and decoded.get("type") in _INTERNAL_ONLY_EVENT_TYPES:
+            logger.info(
+                "Suppressed internal child-channel event type=%s",
+                decoded.get("type"),
+            )
+            return
+
+        await self._websocket.send_text(payload)
 
 
 async def _safe_close(websocket: WebSocket, code: int) -> None:
@@ -94,6 +128,7 @@ def _build_provider_failure_context(
 async def ws_live(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     session_start = time.monotonic()
+    child_safe_websocket = ChildSafeWebSocket(websocket)
 
     store = get_session_grounding_store()
     persona_ctx = store.get_persona(session_id)
@@ -117,7 +152,7 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
         bridge_metrics = BridgeMetrics()
         try:
             await run_duplex_bridge(
-                websocket=websocket,
+                websocket=child_safe_websocket,
                 gemini_client=client,
                 session_id=session_id,
                 metrics=bridge_metrics,

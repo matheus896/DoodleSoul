@@ -8,12 +8,19 @@ from typing import Any, Protocol
 
 from app.config.env_loader import load_env_once
 from app.services import debug_tracer
+from app.services import clinical_extractor
 from app.services.asset_store import build_asset_store
 from app.services.media_orchestrator import MediaOrchestrator, build_scene_prompts
 
 logger = logging.getLogger(__name__)
 
 _MEDIA_TOOLS = {"generate_image", "generate_video"}
+_CLINICAL_TOOLS = {"report_clinical_alert"}
+_SAFE_HARBOR_RESPONSE = (
+    "[SYSTEM: A safety boundary was reached. Respond with extreme warmth and care. "
+    "Say something like: 'I understand, and I'm here with you. Let's think of something that makes us feel safe and happy.' "
+    "Do not reference the previous topic. Stay in character.]"
+)
 
 
 class MediaOrchestratorLike(Protocol):
@@ -62,6 +69,38 @@ def _extract_tool_call_payload(event: dict[str, Any]) -> tuple[str, str, dict[st
     return tool, scene_id, raw_args
 
 
+def _extract_tool_args(event: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+    tool = event.get("tool")
+    raw_args_obj = event.get("args")
+    raw_args: dict[str, Any] = raw_args_obj if isinstance(raw_args_obj, dict) else {}
+    return tool if isinstance(tool, str) else None, raw_args
+
+
+def _build_clinical_alert_event(args: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "clinical_alert",
+        "primary_emotion": str(args.get("primary_emotion", "unknown")),
+        "trigger": str(args.get("trigger", "")),
+        "risk_level": str(args.get("risk_level", "low")),
+        "recommended_strategy": str(args.get("recommended_strategy", "")),
+        "child_quote_summary": str(args.get("child_quote_summary", "")),
+    }
+
+
+def _extract_transcription_text(container: Any) -> str | None:
+    if not isinstance(container, dict):
+        return None
+    text = container.get("text")
+    if isinstance(text, str) and text:
+        return text
+    return None
+
+
+def _is_safety_block_event(event: dict[str, Any]) -> bool:
+    finish_reason = event.get("finish_reason") or event.get("finishReason")
+    return finish_reason == "SAFETY"
+
+
 def _build_prompts(tool: str, scene_id: str, event: dict[str, Any], args: dict[str, Any]) -> tuple[str, str]:
     image_prompt = args.get("image_prompt") or event.get("image_prompt")
     video_prompt = args.get("video_prompt") or event.get("video_prompt")
@@ -102,10 +141,13 @@ class MediaToolCallInterceptingStream:
         self._queue: asyncio.Queue[dict[str, Any] | bytes] = asyncio.Queue()
         self._pump_task: asyncio.Task[None] | None = None
         self._orchestration_tasks: set[asyncio.Task[None]] = set()
+        self._clinical_tasks: set[asyncio.Task[Any]] = set()
         self._base_done = asyncio.Event()
         self._image_generated = False
         self._video_generated = False
         self._generated_images: dict[str, Any] = {}
+        self._input_transcript_buffer: list[str] = []
+        self._output_transcript_buffer: list[str] = []
 
     async def send_realtime_audio(self, audio_chunk: bytes) -> None:
         await self._base_stream.send_realtime_audio(audio_chunk)
@@ -136,6 +178,62 @@ class MediaToolCallInterceptingStream:
             )
         except Exception:
             logger.debug("Failed to send media awareness text for %s", event_type, exc_info=True)
+
+    def get_transcript_snapshot(self) -> dict[str, list[str]]:
+        return {
+            "input": list(self._input_transcript_buffer),
+            "output": list(self._output_transcript_buffer),
+        }
+
+    def _track_task(self, task: asyncio.Task[Any], task_set: set[asyncio.Task[Any]]) -> None:
+        task_set.add(task)
+
+        def _cleanup(done_task: asyncio.Task[Any]) -> None:
+            task_set.discard(done_task)
+
+        task.add_done_callback(_cleanup)
+
+    def _buffer_transcriptions(self, event: dict[str, Any]) -> None:
+        input_text = _extract_transcription_text(event.get("input_transcription"))
+        if input_text:
+            self._input_transcript_buffer.append(input_text)
+
+        output_text = _extract_transcription_text(event.get("output_transcription"))
+        if output_text:
+            self._output_transcript_buffer.append(output_text)
+
+    def _handle_clinical_alert(self, args: dict[str, Any]) -> None:
+        alert_event = _build_clinical_alert_event(args)
+        self._queue.put_nowait(alert_event)
+        debug_tracer.log_debug(
+            event_type="clinical_alert_recognized",
+            source="interceptor",
+            primary_emotion=alert_event["primary_emotion"],
+            risk_level=alert_event["risk_level"],
+        )
+        try:
+            task = clinical_extractor.schedule_extraction(
+                alert_payload={key: value for key, value in alert_event.items() if key != "type"},
+                transcript_snapshot=self.get_transcript_snapshot(),
+            )
+        except Exception:
+            logger.warning("clinical alert extraction scheduling failed silently", exc_info=True)
+            return
+        self._track_task(task, self._clinical_tasks)
+
+    async def _emit_safety_pivot(self, event: dict[str, Any]) -> None:
+        session_id_obj = event.get("session_id")
+        session_id = session_id_obj if isinstance(session_id_obj, str) and session_id_obj else "unknown"
+        self._queue.put_nowait({"type": "safety.pivot.triggered", "session_id": session_id})
+        debug_tracer.log_debug(
+            event_type="safe_harbor_triggered",
+            source="interceptor",
+            session_id=session_id,
+        )
+        try:
+            await self._base_stream.send_text(_SAFE_HARBOR_RESPONSE)
+        except Exception:
+            logger.debug("Failed to inject safe harbor response", exc_info=True)
 
     async def _generate_image_only(self, *, scene_id: str, image_prompt: str) -> None:
         debug_tracer.log_debug(
@@ -182,20 +280,24 @@ class MediaToolCallInterceptingStream:
                 scene_id=scene_id,
             )
 
-    def _handle_tool_call(self, event: dict[str, Any]) -> None:
+    def _handle_tool_call(self, event: dict[str, Any]) -> bool:
         # Classify tool-like events for observability before extraction
         if event.get("type") == "tool_call":
-            tool = event.get("tool")
-            if not isinstance(tool, str) or tool not in _MEDIA_TOOLS:
+            tool, raw_args = _extract_tool_args(event)
+            if tool is None or tool not in (_MEDIA_TOOLS | _CLINICAL_TOOLS):
                 debug_tracer.log_debug(
                     event_type="tool_call_unrecognized",
                     source="interceptor",
-                    reason=f"tool={tool!r} not in media tools",
+                    reason=f"tool={tool!r} not in recognized tools",
                 )
+                return False
+            if tool in _CLINICAL_TOOLS:
+                self._handle_clinical_alert(raw_args)
+                return True
 
         payload = _extract_tool_call_payload(event)
         if payload is None:
-            return
+            return False
 
         tool, scene_id, args = payload
         if tool == "generate_image" and self._image_generated:
@@ -238,18 +340,20 @@ class MediaToolCallInterceptingStream:
                     video_prompt=video_prompt,
                 )
             )
-        self._orchestration_tasks.add(task)
-
-        def _cleanup(done_task: asyncio.Task[None]) -> None:
-            self._orchestration_tasks.discard(done_task)
-
-        task.add_done_callback(_cleanup)
+        self._track_task(task, self._orchestration_tasks)
+        return False
 
     async def _pump_base_events(self) -> None:
         try:
             async for event in self._base_stream.iter_events():
                 if isinstance(event, dict):
-                    self._handle_tool_call(event)
+                    self._buffer_transcriptions(event)
+                    if _is_safety_block_event(event):
+                        await self._emit_safety_pivot(event)
+                        continue
+                    suppress_original_event = self._handle_tool_call(event)
+                    if suppress_original_event:
+                        continue
                 await self._queue.put(event)
         except asyncio.CancelledError:
             raise
@@ -262,6 +366,8 @@ class MediaToolCallInterceptingStream:
         if not self._base_done.is_set():
             return False
         if self._orchestration_tasks:
+            return False
+        if self._clinical_tasks:
             return False
         return self._queue.empty()
 
@@ -291,6 +397,10 @@ class MediaToolCallInterceptingStream:
             task.cancel()
         if self._orchestration_tasks:
             await asyncio.gather(*self._orchestration_tasks, return_exceptions=True)
+        for task in list(self._clinical_tasks):
+            task.cancel()
+        if self._clinical_tasks:
+            await asyncio.gather(*self._clinical_tasks, return_exceptions=True)
         await self._base_stream.close()
 
 

@@ -75,7 +75,7 @@ def _parse_model_response(text: str) -> dict[str, Any]:
 class VisionPersonaDeriver:
     """Adapter that calls Gemini Vision to derive persona traits from a drawing image."""
 
-    def __init__(self, *, client: Any, model: str = "gemini-2.0-flash") -> None:
+    def __init__(self, *, client: Any, model: str = "gemini-3.1-flash-lite-preview") -> None:
         self._client = client
         self._model = model
 

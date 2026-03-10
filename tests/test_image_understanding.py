@@ -14,7 +14,7 @@ import io
 from PIL import Image
 from google.genai import types
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.1-flash-lite-preview"
 
 
 def _make_red_rectangle() -> Image.Image:

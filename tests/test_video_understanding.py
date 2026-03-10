@@ -7,7 +7,7 @@ No video file is downloaded locally — the API fetches it directly from YouTube
 
 from google.genai import types
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.1-flash-lite-preview"
 
 # Big Buck Bunny — short, public, clearly identifiable animated video.
 YOUTUBE_URL = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"

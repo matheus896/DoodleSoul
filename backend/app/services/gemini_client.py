@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator, Protocol
 logger = logging.getLogger(__name__)
 
 _MEDIA_TOOLS = {"generate_image", "generate_video"}
+_CLINICAL_TOOLS = {"report_clinical_alert"}
 _TEXT_TOOL_MARKER = "[ANIMISM_TOOL_CALL]"
 
 
@@ -46,6 +47,56 @@ def generate_video(  # noqa: D401
     same scene_id as the preceding generate_image call when applicable.
     """
     return {"status": "acknowledged", "scene_id": scene_id}
+
+
+def report_clinical_alert(  # noqa: D401
+    primary_emotion: str,
+    trigger: str,
+    recommended_strategy: str,
+    risk_level: str,
+    child_quote_summary: str,
+) -> dict[str, str]:
+    """Report a clinical observation to the therapist — hidden from the child.
+
+    Call this silently when you detect anxiety, frustration, distress, or
+    potentially concerning speech in the child.  Do NOT mention this call
+    to the child and do NOT break character.  Continue warmly in character
+    immediately after calling this tool.
+    """
+    _ = trigger, recommended_strategy, risk_level, child_quote_summary
+    return {"status": "received", "primary_emotion": primary_emotion}
+
+
+# ---------------------------------------------------------------------------
+# Safety config builder — applied at Agent level (not RunConfig)
+# ---------------------------------------------------------------------------
+
+
+def build_safety_config(*, types_module: Any) -> list[Any]:
+    """Build BLOCK_ONLY_HIGH safety settings for the live agent.
+
+    Supports injection of a fake types_module for unit testing.
+    Returns empty list when required types are unavailable (guard for
+    SDK version mismatches — L11-007).
+    """
+    safety_cls = getattr(types_module, "SafetySetting", None)
+    harm_category = getattr(types_module, "HarmCategory", None)
+    harm_threshold = getattr(types_module, "HarmBlockThreshold", None)
+    if safety_cls is None or harm_category is None or harm_threshold is None:
+        return []
+
+    block_threshold = getattr(harm_threshold, "BLOCK_ONLY_HIGH", "BLOCK_ONLY_HIGH")
+    harm_category_names = [
+        "HARM_CATEGORY_HARASSMENT",
+        "HARM_CATEGORY_HATE_SPEECH",
+        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "HARM_CATEGORY_DANGEROUS_CONTENT",
+    ]
+    settings = []
+    for cat_name in harm_category_names:
+        category = getattr(harm_category, cat_name, cat_name)
+        settings.append(safety_cls(category=category, threshold=block_threshold))
+    return settings
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +267,7 @@ class AdkGeminiLiveStream:
 
                 tool = marker_payload.get("tool")
                 args = marker_payload.get("args")
-                if not isinstance(tool, str) or tool not in _MEDIA_TOOLS:
+                if not isinstance(tool, str) or tool not in (_MEDIA_TOOLS | _CLINICAL_TOOLS):
                     scan_pos = marker_pos + len(_TEXT_TOOL_MARKER) + consumed
                     continue
                 if not isinstance(args, dict):
@@ -280,15 +331,34 @@ class GeminiLiveClient:
         tool_mode = os.getenv("ANIMISM_ADK_TOOL_MODE", "native").lower()
         native_tools_enabled = tool_mode != "text_fallback"
 
-        agent = Agent(
+        # Apply BLOCK_ONLY_HIGH safety at Agent level (L11-007: not RunConfig)
+        generate_content_config = None
+        try:
+            from google.genai import types as genai_types
+
+            safety_settings = build_safety_config(types_module=genai_types)
+            if safety_settings:
+                generate_content_config = genai_types.GenerateContentConfig(
+                    safety_settings=safety_settings,
+                )
+        except Exception:
+            logger.debug("Safety config unavailable for this SDK version; continuing without it")
+
+        tools = [generate_image, generate_video, report_clinical_alert] if native_tools_enabled else []
+
+        agent_kwargs: dict[str, Any] = dict(
             name="animism_live_agent",
             model=model,
             instruction=build_agent_instruction(
                 native_tools_enabled=native_tools_enabled,
                 persona_data=self._persona_data,
             ),
-            tools=[generate_image, generate_video] if native_tools_enabled else [],
+            tools=tools,
         )
+        if generate_content_config is not None:
+            agent_kwargs["generate_content_config"] = generate_content_config
+
+        agent = Agent(**agent_kwargs)
         session_service = InMemorySessionService()
         runner = Runner(
             app_name="animism-studio",
@@ -353,7 +423,16 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         "If child intent is short or ambiguous, keep talking and ask a clarifying question instead of calling tools."
     )
 
-    base_instruction = f"{identity_block}\n\n{rules_block}"
+    clinical_block = (
+        "You have a private clinical observation channel: the report_clinical_alert tool. "
+        "Call it silently whenever you detect anxiety, frustration, distress, fear, or potentially concerning themes "
+        "in what the child expresses through the story. "
+        "Do not tell the child you are doing this, do not mention safety or restrictions, "
+        "and do not break character. Continue warmly in character immediately after calling it. "
+        "The clinical observation is invisible to the child and private to the therapist."
+    )
+
+    base_instruction = f"{identity_block}\n\n{rules_block}\n\n{clinical_block}"
 
     if native_tools_enabled:
         return base_instruction
@@ -362,6 +441,8 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         " If function calls are unavailable, emit exactly one line per call in this format and continue naturally: "
         "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_image\",\"args\":{\"scene_id\":\"scene-1\",\"image_prompt\":\"...\",\"visual_traits\":[\"...\"],\"child_context\":\"...\"}} "
         "and later "
-        "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}."
+        "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}. "
+        "For clinical observations emit: "
+        "[ANIMISM_TOOL_CALL] {\"tool\":\"report_clinical_alert\",\"args\":{\"primary_emotion\":\"...\",\"trigger\":\"...\",\"recommended_strategy\":\"...\",\"risk_level\":\"low\",\"child_quote_summary\":\"...\"}}."
     )
     return base_instruction + fallback_instruction

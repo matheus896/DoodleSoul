@@ -49,7 +49,7 @@ async def test_vision_deriver_returns_structured_traits_on_success() -> None:
     mock_client.models = MagicMock()
     mock_client.models.generate_content = AsyncMock(return_value=mock_response)
 
-    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-2.0-flash")
+    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-3.1-flash-lite-preview")
 
     result = await deriver.derive(
         drawing_image_base64=VALID_IMAGE_BASE64,
@@ -86,7 +86,7 @@ async def test_vision_deriver_returns_fallback_on_timeout() -> None:
         side_effect=TimeoutError("Vision API timed out")
     )
 
-    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-2.0-flash")
+    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-3.1-flash-lite-preview")
 
     result = await deriver.derive(
         drawing_image_base64=VALID_IMAGE_BASE64,
@@ -119,7 +119,7 @@ async def test_vision_deriver_returns_fallback_on_api_error() -> None:
         side_effect=Exception("500 Internal Server Error")
     )
 
-    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-2.0-flash")
+    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-3.1-flash-lite-preview")
 
     result = await deriver.derive(
         drawing_image_base64=VALID_IMAGE_BASE64,
@@ -152,7 +152,7 @@ async def test_vision_deriver_returns_fallback_on_malformed_response() -> None:
     mock_client.models = MagicMock()
     mock_client.models.generate_content = AsyncMock(return_value=mock_response)
 
-    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-2.0-flash")
+    deriver = VisionPersonaDeriver(client=mock_client, model="gemini-3.1-flash-lite-preview")
 
     result = await deriver.derive(
         drawing_image_base64=VALID_IMAGE_BASE64,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.api import websockets
@@ -250,3 +252,41 @@ async def test_ws_live_passes_none_persona_when_session_has_no_persona(monkeypat
 
     assert len(captured_persona) == 1
     assert captured_persona[0] is None
+
+
+@pytest.mark.asyncio
+async def test_child_safe_websocket_filters_clinical_and_safety_events() -> None:
+    ws = FakeWebSocket()
+    safe_ws = websockets.ChildSafeWebSocket(ws)
+
+    await safe_ws.send_text(json.dumps({"type": "clinical_alert", "primary_emotion": "fear"}))
+    await safe_ws.send_text(json.dumps({"type": "safety.pivot.triggered", "session_id": "s1"}))
+    await safe_ws.send_text(json.dumps({"type": "text", "text": "hello child"}))
+
+    assert ws.sent_text == ['{"type": "text", "text": "hello child"}']
+
+
+@pytest.mark.asyncio
+async def test_ws_live_filters_internal_events_before_sending_to_client(monkeypatch) -> None:
+    ws = FakeWebSocket()
+
+    def _build_client(*, persona_data=None) -> object:
+        _ = persona_data
+        return object()
+
+    def _wrap_client(*, client: object):
+        return client
+
+    async def _bridge(*, websocket, gemini_client, session_id: str, metrics=None) -> None:
+        _ = gemini_client, session_id, metrics
+        await websocket.send_text(json.dumps({"type": "clinical_alert", "primary_emotion": "fear"}))
+        await websocket.send_text(json.dumps({"type": "safety.pivot.triggered", "session_id": "s1"}))
+        await websocket.send_text(json.dumps({"type": "text", "text": "visible"}))
+
+    monkeypatch.setattr(websockets, "build_live_client", _build_client)
+    monkeypatch.setattr(websockets, "maybe_wrap_live_client_with_media_orchestrator", _wrap_client)
+    monkeypatch.setattr(websockets, "run_duplex_bridge", _bridge)
+
+    await websockets.ws_live(ws, "s-filter")
+
+    assert ws.sent_text == ['{"type": "text", "text": "visible"}']

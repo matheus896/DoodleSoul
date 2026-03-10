@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, AsyncIterator
 
 import pytest
+import app.services.live_media_interceptor as live_media_interceptor
 
 from app.services.live_media_interceptor import (
     MediaToolCallInterceptingClient,
@@ -515,6 +516,212 @@ async def test_media_awareness_does_not_trigger_new_generation() -> None:
     assert len(orchestrator.image_calls) == 1
     assert orchestrator.video_calls == []
     assert orchestrator.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Epic 4 — Silent Alarm + Safe Harbor
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clinical_alert_tool_call_is_emitted_and_does_not_trigger_media(monkeypatch) -> None:
+    scheduled_calls: list[dict[str, Any]] = []
+
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> asyncio.Task:
+        scheduled_calls.append(
+            {
+                "alert_payload": alert_payload,
+                "transcript_snapshot": transcript_snapshot,
+            }
+        )
+
+        async def _noop() -> None:
+            await asyncio.sleep(0)
+
+        return asyncio.create_task(_noop())
+
+    monkeypatch.setattr(live_media_interceptor.clinical_extractor, "schedule_extraction", _schedule_extraction)
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "report_clinical_alert",
+                "args": {
+                    "primary_emotion": "anxiety",
+                    "trigger": "school",
+                    "risk_level": "medium",
+                    "recommended_strategy": "slow breathing",
+                    "child_quote_summary": "The monster felt scared at school.",
+                },
+            }
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(base_stream=base_stream, media_orchestrator=orchestrator)
+
+    events = await _collect_events(stream)
+
+    assert any(isinstance(event, dict) and event.get("type") == "clinical_alert" for event in events)
+    assert orchestrator.calls == []
+    assert orchestrator.image_calls == []
+    assert orchestrator.video_calls == []
+    assert len(scheduled_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_clinical_alert_payload_contains_expected_fields(monkeypatch) -> None:
+    scheduled_calls: list[dict[str, Any]] = []
+
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> asyncio.Task:
+        scheduled_calls.append(
+            {
+                "alert_payload": alert_payload,
+                "transcript_snapshot": transcript_snapshot,
+            }
+        )
+
+        async def _noop() -> None:
+            await asyncio.sleep(0)
+
+        return asyncio.create_task(_noop())
+
+    monkeypatch.setattr(live_media_interceptor.clinical_extractor, "schedule_extraction", _schedule_extraction)
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "report_clinical_alert",
+                "args": {
+                    "primary_emotion": "fear",
+                    "trigger": "dark room",
+                    "risk_level": "high",
+                    "recommended_strategy": "stay with caregiver",
+                    "child_quote_summary": "The room feels scary.",
+                },
+            }
+        ]
+    )
+    stream = MediaToolCallInterceptingStream(base_stream=base_stream, media_orchestrator=FakeOrchestrator())
+
+    events = await _collect_events(stream)
+
+    clinical_events = [event for event in events if isinstance(event, dict) and event.get("type") == "clinical_alert"]
+    assert len(clinical_events) == 1
+    assert clinical_events[0]["primary_emotion"] == "fear"
+    assert clinical_events[0]["trigger"] == "dark room"
+    assert clinical_events[0]["risk_level"] == "high"
+    assert len(scheduled_calls) == 1
+    assert scheduled_calls[0]["alert_payload"]["primary_emotion"] == "fear"
+
+
+@pytest.mark.asyncio
+async def test_generate_image_and_video_still_work_when_clinical_alert_also_fires(monkeypatch) -> None:
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> asyncio.Task:
+        _ = alert_payload, transcript_snapshot
+
+        async def _noop() -> None:
+            await asyncio.sleep(0)
+
+        return asyncio.create_task(_noop())
+
+    monkeypatch.setattr(live_media_interceptor.clinical_extractor, "schedule_extraction", _schedule_extraction)
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "report_clinical_alert",
+                "args": {"primary_emotion": "distress", "trigger": "school", "risk_level": "medium"},
+            },
+            {
+                "type": "tool_call",
+                "tool": "generate_image",
+                "scene_id": "scene-1",
+                "prompt": "calm blue robot",
+            },
+            {
+                "type": "tool_call",
+                "tool": "generate_video",
+                "scene_id": "scene-1",
+                "args": {"video_prompt": "robot waves gently"},
+            },
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(base_stream=base_stream, media_orchestrator=orchestrator)
+
+    events = await _collect_events(stream)
+
+    assert any(isinstance(event, dict) and event.get("type") == "clinical_alert" for event in events)
+    assert len(orchestrator.image_calls) == 1
+    assert len(orchestrator.video_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_input_and_output_transcriptions_are_buffered_without_affecting_audio_passthrough() -> None:
+    base_stream = FakeBaseStream(
+        events=[
+            b"audio-1",
+            {"input_transcription": {"text": "I feel worried."}},
+            {"output_transcription": {"text": "I am here with you."}},
+            b"audio-2",
+        ]
+    )
+    stream = MediaToolCallInterceptingStream(base_stream=base_stream, media_orchestrator=FakeOrchestrator())
+
+    events = await _collect_events(stream)
+    snapshot = stream.get_transcript_snapshot()
+
+    assert b"audio-1" in events
+    assert b"audio-2" in events
+    assert snapshot["input"] == ["I feel worried."]
+    assert snapshot["output"] == ["I am here with you."]
+
+
+@pytest.mark.asyncio
+async def test_get_transcript_snapshot_returns_copy() -> None:
+    base_stream = FakeBaseStream(events=[{"input_transcription": {"text": "hello"}}])
+    stream = MediaToolCallInterceptingStream(base_stream=base_stream, media_orchestrator=FakeOrchestrator())
+
+    await _collect_events(stream)
+
+    snapshot = stream.get_transcript_snapshot()
+    snapshot["input"].append("mutated")
+
+    assert stream.get_transcript_snapshot()["input"] == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_safety_finish_reason_triggers_safe_harbor_and_suppresses_raw_event() -> None:
+    base_stream = FakeBaseStream(
+        events=[
+            {"type": "model_turn", "finish_reason": "SAFETY"},
+            {"type": "text", "text": "still-running"},
+        ]
+    )
+    stream = MediaToolCallInterceptingStream(base_stream=base_stream, media_orchestrator=FakeOrchestrator())
+
+    events = await _collect_events(stream)
+
+    assert any(isinstance(event, dict) and event.get("type") == "safety.pivot.triggered" for event in events)
+    assert not any(
+        isinstance(event, dict) and event.get("finish_reason") == "SAFETY"
+        for event in events
+    )
+    assert any(isinstance(event, dict) and event.get("type") == "text" for event in events)
+    assert live_media_interceptor._SAFE_HARBOR_RESPONSE in base_stream.upstream_text
+
+
+@pytest.mark.asyncio
+async def test_safety_finish_reason_camel_case_variant_is_also_recognized() -> None:
+    base_stream = FakeBaseStream(events=[{"type": "model_turn", "finishReason": "SAFETY"}])
+    stream = MediaToolCallInterceptingStream(base_stream=base_stream, media_orchestrator=FakeOrchestrator())
+
+    events = await _collect_events(stream)
+
+    assert events == [{"type": "safety.pivot.triggered", "session_id": "unknown"}]
 
 
 @pytest.mark.asyncio
