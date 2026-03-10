@@ -527,11 +527,12 @@ async def test_media_awareness_does_not_trigger_new_generation() -> None:
 async def test_clinical_alert_tool_call_is_emitted_and_does_not_trigger_media(monkeypatch) -> None:
     scheduled_calls: list[dict[str, Any]] = []
 
-    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> asyncio.Task:
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None, session_id: str | None = None) -> asyncio.Task:
         scheduled_calls.append(
             {
                 "alert_payload": alert_payload,
                 "transcript_snapshot": transcript_snapshot,
+                "session_id": session_id,
             }
         )
 
@@ -573,11 +574,12 @@ async def test_clinical_alert_tool_call_is_emitted_and_does_not_trigger_media(mo
 async def test_clinical_alert_payload_contains_expected_fields(monkeypatch) -> None:
     scheduled_calls: list[dict[str, Any]] = []
 
-    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> asyncio.Task:
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None, session_id: str | None = None) -> asyncio.Task:
         scheduled_calls.append(
             {
                 "alert_payload": alert_payload,
                 "transcript_snapshot": transcript_snapshot,
+                "session_id": session_id,
             }
         )
 
@@ -618,8 +620,8 @@ async def test_clinical_alert_payload_contains_expected_fields(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_generate_image_and_video_still_work_when_clinical_alert_also_fires(monkeypatch) -> None:
-    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> asyncio.Task:
-        _ = alert_payload, transcript_snapshot
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None, session_id: str | None = None) -> asyncio.Task:
+        _ = alert_payload, transcript_snapshot, session_id
 
         async def _noop() -> None:
             await asyncio.sleep(0)

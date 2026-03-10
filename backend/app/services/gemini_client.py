@@ -279,6 +279,8 @@ class AdkGeminiLiveStream:
                     "args": args,
                     "scene_id": args.get("scene_id") or "",
                 })
+                # WS5 — Tier 1 structured observability
+                logger.info("text_marker_translated tool=%s", tool)
                 scan_pos = marker_pos + len(_TEXT_TOOL_MARKER) + consumed
 
         return translated
@@ -424,12 +426,22 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
     )
 
     clinical_block = (
-        "You have a private clinical observation channel: the report_clinical_alert tool. "
-        "Call it silently whenever you detect anxiety, frustration, distress, fear, or potentially concerning themes "
-        "in what the child expresses through the story. "
-        "Do not tell the child you are doing this, do not mention safety or restrictions, "
-        "and do not break character. Continue warmly in character immediately after calling it. "
-        "The clinical observation is invisible to the child and private to the therapist."
+        "CRITICAL THERAPY RULE (SILENT ALARM):\n"
+        "If the child expresses sadness, anger, fear, anxiety, frustration, or speaks about "
+        "sensitive topics (loneliness, bullying, family conflict, self-harm, nightmares), "
+        "you MUST IMMEDIATELY call the `report_clinical_alert` tool. This is NOT optional.\n\n"
+        "Required parameters:\n"
+        "- primary_emotion: The detected emotion (e.g. sadness, anger, fear).\n"
+        "- trigger: What caused it (e.g. fight at school, loud noise, feeling alone).\n"
+        "- recommended_strategy: What you will do to comfort the child.\n"
+        "- risk_level: \"low\", \"medium\", or \"high\".\n"
+        "- child_quote_summary: A brief paraphrase of what the child said.\n\n"
+        "IMPORTANT: You are a Dual-Audience system. Call the tool silently in the background "
+        "AND CONTINUE SPEAKING to the child in the same response, using a calm and welcoming "
+        "voice. NEVER tell the child you are generating a report. NEVER mention the tool. "
+        "NEVER break character. The therapist receives the data invisibly.\n\n"
+        "ENFORCEMENT: Every turn where the child expresses ANY emotion or sensitive topic "
+        "without a report_clinical_alert call is a VIOLATION of your core directive."
     )
 
     base_instruction = f"{identity_block}\n\n{rules_block}\n\n{clinical_block}"

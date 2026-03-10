@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from app.services.session_grounding_store import get_session_grounding_store
+from app.services.clinical_session_store import get_clinical_session_store
 from app.services.vision_persona_deriver import VisionPersonaDeriver
 
 logger = logging.getLogger(__name__)
@@ -221,4 +222,24 @@ async def derive_persona(session_id: str, request: PersonaDerivationRequest):
     return {
         "status": "ok",
         "data": data.model_dump(),
+    }
+
+
+@router.get("/api/dashboard/insights/{session_id}")
+async def get_insights(session_id: str):
+    store = get_clinical_session_store()
+    if not store.has_session(session_id):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "status": "error",
+                "error": {
+                    "code": "SESSION_NOT_FOUND",
+                    "message": f"No clinical session found for session_id={session_id}.",
+                },
+            },
+        )
+    return {
+        "status": "ok",
+        "data": store.get_insights(session_id),
     }

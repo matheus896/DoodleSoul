@@ -1,3 +1,5 @@
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,6 +16,20 @@ from app.services.asset_store import build_asset_store
 async def lifespan(application: FastAPI):
     """Application lifespan: initialize services at startup."""
     load_env_once()
+
+    # WS6 — modular log level: INFO (dev default), WARNING (prod)
+    # Python's logging requires an explicit handler; without one, INFO logs
+    # are silently discarded (lastResort only handles WARNING+).
+    log_level = os.getenv("ANIMISM_LOG_LEVEL", "INFO").upper()
+    app_logger = logging.getLogger("app")
+    app_logger.setLevel(getattr(logging, log_level, logging.INFO))
+    if not app_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(levelname)-8s %(name)s: %(message)s")
+        )
+        app_logger.addHandler(handler)
+
     init_vision_deriver()
 
     # Mount the local static assets directory so generated media is publicly

@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import Any
 
+from app.services.clinical_session_store import get_clinical_session_store
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,22 +35,49 @@ def build_clinical_summary(payload: dict[str, Any]) -> str:
     )
 
 
-async def extract_and_log(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> None:
+async def extract_and_log(
+    *,
+    alert_payload: dict,
+    transcript_snapshot: dict | None = None,
+    session_id: str | None = None,
+) -> None:
     try:
         payload = build_clinical_payload(
             alert_payload=alert_payload,
             transcript_snapshot=transcript_snapshot,
         )
         summary = build_clinical_summary(payload)
-        logger.info("clinical_extraction session_payload=%s summary=%r", payload, summary)
+
+        # WS3 — persist to clinical store when session_id is available
+        if session_id is not None:
+            store = get_clinical_session_store()
+            store.add_payload(session_id, payload)
+            store.add_summary(session_id, summary)
+
+        # WS5 — Tier 1 structured observability
+        logger.info(
+            "clinical_extraction_completed session_id=%s",
+            session_id or "unknown",
+        )
     except Exception:
         logger.warning("clinical_extractor failed silently", exc_info=True)
 
 
-def schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None) -> asyncio.Task:
+def schedule_extraction(
+    *,
+    alert_payload: dict,
+    transcript_snapshot: dict | None = None,
+    session_id: str | None = None,
+) -> asyncio.Task:
+    # WS5 — Tier 1 structured observability
+    logger.info(
+        "clinical_extraction_scheduled session_id=%s",
+        session_id or "unknown",
+    )
     return asyncio.create_task(
         extract_and_log(
             alert_payload=alert_payload,
             transcript_snapshot=transcript_snapshot,
+            session_id=session_id,
         )
     )

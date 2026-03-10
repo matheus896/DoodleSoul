@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from app.config.env_loader import load_env_once
 from app.services import debug_tracer
 from app.services import clinical_extractor
+from app.services.clinical_session_store import get_clinical_session_store
 from app.services.asset_store import build_asset_store
 from app.services.media_orchestrator import MediaOrchestrator, build_scene_prompts
 
@@ -135,9 +136,10 @@ def _build_prompts(tool: str, scene_id: str, event: dict[str, Any], args: dict[s
 
 
 class MediaToolCallInterceptingStream:
-    def __init__(self, *, base_stream: Any, media_orchestrator: MediaOrchestratorLike) -> None:
+    def __init__(self, *, base_stream: Any, media_orchestrator: MediaOrchestratorLike, session_id: str = "unknown") -> None:
         self._base_stream = base_stream
         self._media_orchestrator: MediaOrchestratorLike = media_orchestrator
+        self._session_id = session_id
         self._queue: asyncio.Queue[dict[str, Any] | bytes] = asyncio.Queue()
         self._pump_task: asyncio.Task[None] | None = None
         self._orchestration_tasks: set[asyncio.Task[None]] = set()
@@ -197,10 +199,18 @@ class MediaToolCallInterceptingStream:
         input_text = _extract_transcription_text(event.get("input_transcription"))
         if input_text:
             self._input_transcript_buffer.append(input_text)
+            logger.debug(
+                "transcript_fragment_observed session_id=%s direction=%s len=%d",
+                self._session_id, "input", len(input_text),
+            )
 
         output_text = _extract_transcription_text(event.get("output_transcription"))
         if output_text:
             self._output_transcript_buffer.append(output_text)
+            logger.debug(
+                "transcript_fragment_observed session_id=%s direction=%s len=%d",
+                self._session_id, "output", len(output_text),
+            )
 
     def _handle_clinical_alert(self, args: dict[str, Any]) -> None:
         alert_event = _build_clinical_alert_event(args)
@@ -211,10 +221,23 @@ class MediaToolCallInterceptingStream:
             primary_emotion=alert_event["primary_emotion"],
             risk_level=alert_event["risk_level"],
         )
+
+        # WS3 — persist alert to clinical store
+        alert_data = {key: value for key, value in alert_event.items() if key != "type"}
+        store = get_clinical_session_store()
+        store.add_alert(self._session_id, alert_data)
+
+        # WS5 — Tier 1 structured observability
+        logger.info(
+            "clinical_alert_stored session_id=%s emotion=%s risk=%s",
+            self._session_id, alert_event["primary_emotion"], alert_event["risk_level"],
+        )
+
         try:
             task = clinical_extractor.schedule_extraction(
-                alert_payload={key: value for key, value in alert_event.items() if key != "type"},
+                alert_payload=alert_data,
                 transcript_snapshot=self.get_transcript_snapshot(),
+                session_id=self._session_id,
             )
         except Exception:
             logger.warning("clinical alert extraction scheduling failed silently", exc_info=True)
@@ -222,13 +245,18 @@ class MediaToolCallInterceptingStream:
         self._track_task(task, self._clinical_tasks)
 
     async def _emit_safety_pivot(self, event: dict[str, Any]) -> None:
-        session_id_obj = event.get("session_id")
-        session_id = session_id_obj if isinstance(session_id_obj, str) and session_id_obj else "unknown"
+        session_id = self._session_id
         self._queue.put_nowait({"type": "safety.pivot.triggered", "session_id": session_id})
         debug_tracer.log_debug(
             event_type="safe_harbor_triggered",
             source="interceptor",
             session_id=session_id,
+        )
+        # WS5 — Tier 1 structured observability
+        finish_reason = event.get("finish_reason") or event.get("finishReason") or "unknown"
+        logger.info(
+            "safe_harbor_triggered session_id=%s finish_reason=%s",
+            session_id, finish_reason,
         )
         try:
             await self._base_stream.send_text(_SAFE_HARBOR_RESPONSE)
@@ -292,6 +320,11 @@ class MediaToolCallInterceptingStream:
                 )
                 return False
             if tool in _CLINICAL_TOOLS:
+                # WS5 — Tier 1
+                logger.info(
+                    "clinical_tool_call_recognized session_id=%s tool=%s",
+                    self._session_id, tool,
+                )
                 self._handle_clinical_alert(raw_args)
                 return True
 
@@ -414,6 +447,7 @@ class MediaToolCallInterceptingClient:
         return MediaToolCallInterceptingStream(
             base_stream=base_stream,
             media_orchestrator=self._media_orchestrator,
+            session_id=session_id,
         )
 
 
@@ -448,6 +482,8 @@ def maybe_wrap_live_client_with_media_orchestrator(
             source="interceptor",
             mode=resolved_mode,
         )
+        # WS5 — Tier 1
+        logger.info("interceptor_bypassed mode=%s", resolved_mode)
         return client
 
     orchestrator = media_orchestrator
@@ -460,6 +496,7 @@ def maybe_wrap_live_client_with_media_orchestrator(
             mode=resolved_mode,
             reason="orchestrator_unavailable",
         )
+        logger.info("interceptor_bypassed mode=%s reason=orchestrator_unavailable", resolved_mode)
         return client
 
     debug_tracer.log_debug(
@@ -467,6 +504,8 @@ def maybe_wrap_live_client_with_media_orchestrator(
         source="interceptor",
         mode=resolved_mode,
     )
+    # WS5 — Tier 1
+    logger.info("interceptor_active session_id=pending mode=%s", resolved_mode)
     return MediaToolCallInterceptingClient(
         base_client=client,
         media_orchestrator=orchestrator,

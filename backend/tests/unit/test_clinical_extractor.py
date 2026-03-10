@@ -1,3 +1,5 @@
+"""Tests for clinical_extractor.py — WS3 store integration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,6 +7,7 @@ import asyncio
 import pytest
 
 from app.services import clinical_extractor
+from app.services.clinical_session_store import ClinicalSessionStore
 
 
 def test_build_clinical_payload_maps_all_alert_fields() -> None:
@@ -86,3 +89,63 @@ async def test_schedule_extraction_returns_task() -> None:
         if not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# WS3 — Store write tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_extract_and_log_writes_payload_and_summary_to_store(monkeypatch) -> None:
+    """extract_and_log must persist payload + summary to clinical store when session_id is provided."""
+    fake_store = ClinicalSessionStore()
+    fake_store.register_session("s-test")
+    monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
+
+    await clinical_extractor.extract_and_log(
+        alert_payload={"primary_emotion": "anxiety", "risk_level": "high"},
+        session_id="s-test",
+    )
+
+    insights = fake_store.get_insights("s-test")
+    assert len(insights["payloads"]) == 1
+    assert insights["payloads"][0]["primary_emotion"] == "anxiety"
+    assert len(insights["summaries"]) == 1
+    assert "anxiety" in insights["summaries"][0]
+
+
+@pytest.mark.asyncio
+async def test_extract_and_log_without_session_id_does_not_write_to_store(monkeypatch) -> None:
+    """When session_id is None, no store writes should occur."""
+    fake_store = ClinicalSessionStore()
+    monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
+
+    await clinical_extractor.extract_and_log(
+        alert_payload={"primary_emotion": "sadness"},
+    )
+
+    # No data should be in the store
+    assert fake_store.get_insights("any")["payloads"] == []
+
+
+@pytest.mark.asyncio
+async def test_schedule_extraction_passes_session_id(monkeypatch) -> None:
+    """schedule_extraction must forward session_id to extract_and_log."""
+    fake_store = ClinicalSessionStore()
+    fake_store.register_session("s-sched")
+    monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
+
+    task = clinical_extractor.schedule_extraction(
+        alert_payload={"primary_emotion": "fear"},
+        session_id="s-sched",
+    )
+    try:
+        await task
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    insights = fake_store.get_insights("s-sched")
+    assert len(insights["payloads"]) == 1

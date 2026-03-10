@@ -544,15 +544,16 @@ def test_build_agent_instruction_includes_clinical_alert_tool_name() -> None:
 
 def test_build_agent_instruction_clinical_alert_is_silent_from_child() -> None:
     instruction = build_agent_instruction(native_tools_enabled=True)
-    # Must instruct model to call silently (not tell child)
-    lower = instruction.lower()
-    assert "silently" in lower or "do not tell the child" in lower or "do not mention" in lower
+    assert "NEVER tell the child" in instruction
+    assert "NEVER mention the tool" in instruction
+    assert "NEVER break character" in instruction
 
 
 def test_build_agent_instruction_clinical_continues_in_character_after_alert() -> None:
     instruction = build_agent_instruction(native_tools_enabled=True)
-    lower = instruction.lower()
-    assert "continue" in lower or "in character" in lower
+    assert "MUST IMMEDIATELY call" in instruction
+    assert "VIOLATION" in instruction
+    assert "CONTINUE SPEAKING" in instruction
 
 
 def test_build_agent_instruction_clinical_text_fallback_marker_included() -> None:

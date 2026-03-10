@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 
 import asyncio
@@ -14,6 +15,7 @@ from app.services import debug_tracer
 from app.services.live_client_factory import build_live_client
 from app.services.live_media_interceptor import maybe_wrap_live_client_with_media_orchestrator
 from app.services.session_grounding_store import get_session_grounding_store
+from app.services.clinical_session_store import get_clinical_session_store
 
 
 router = APIRouter()
@@ -50,7 +52,7 @@ class ChildSafeWebSocket:
 
         if isinstance(decoded, dict) and decoded.get("type") in _INTERNAL_ONLY_EVENT_TYPES:
             logger.info(
-                "Suppressed internal child-channel event type=%s",
+                "child_channel_event_suppressed type=%s",
                 decoded.get("type"),
             )
             return
@@ -139,6 +141,17 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
             "personality_traits": persona_ctx.personality_traits,
             "greeting_text": persona_ctx.greeting_text,
         }
+
+    # WS3 — register clinical session for alert/payload/summary persistence
+    get_clinical_session_store().register_session(session_id)
+
+    # WS5 — Tier 1 structured observability
+    live_mode = os.getenv("ANIMISM_LIVE_MODE", "adk")
+    tool_mode = os.getenv("ANIMISM_ADK_TOOL_MODE", "native")
+    logger.info(
+        "session_started session_id=%s live_mode=%s tool_mode=%s",
+        session_id, live_mode, tool_mode,
+    )
     logger.info(
         "ws_live session=%s persona_grounded=%s persona_data=%s",
         session_id,
