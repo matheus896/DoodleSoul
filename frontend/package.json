@@ -15,9 +15,12 @@
     "test:e2e:debug": "playwright test --debug"
   },
   "dependencies": {
+    "lucide-react": "^0.511.0",
     "motion": "^12.34.4",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.0",
+    "recharts": "^2.15.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
