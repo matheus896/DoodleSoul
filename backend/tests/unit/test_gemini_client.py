@@ -563,6 +563,68 @@ def test_build_agent_instruction_clinical_text_fallback_marker_included() -> Non
     assert '"tool":"report_clinical_alert"' in instruction
 
 
+def test_translate_native_function_call_for_clinical_alert() -> None:
+    """Native mode report_clinical_alert must be translated via requested_function_calls."""
+    dumped: dict = {
+        "actions": {
+            "requested_function_calls": [
+                {
+                    "name": "report_clinical_alert",
+                    "args": {
+                        "primary_emotion": "sadness",
+                        "trigger": "family conflict",
+                        "recommended_strategy": "emotional validation",
+                        "risk_level": "medium",
+                        "child_quote_summary": "my parents fight a lot",
+                    },
+                    "id": "call-clinical-1",
+                },
+            ]
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 1
+    ev = result[0]
+    assert ev["type"] == "tool_call"
+    assert ev["tool"] == "report_clinical_alert"
+    assert ev["args"]["primary_emotion"] == "sadness"
+    assert ev["args"]["trigger"] == "family conflict"
+    assert ev["args"]["risk_level"] == "medium"
+
+
+def test_translate_native_mixed_media_and_clinical_calls() -> None:
+    """Native mode must translate both media and clinical tools in a single event."""
+    dumped: dict = {
+        "actions": {
+            "requested_function_calls": [
+                {
+                    "name": "generate_image",
+                    "args": {"scene_id": "scene-1", "image_prompt": "forest"},
+                    "id": "call-media",
+                },
+                {
+                    "name": "report_clinical_alert",
+                    "args": {
+                        "primary_emotion": "fear",
+                        "trigger": "nightmares",
+                        "recommended_strategy": "safe imagery",
+                        "risk_level": "high",
+                        "child_quote_summary": "scary dreams",
+                    },
+                    "id": "call-clinical",
+                },
+            ]
+        }
+    }
+
+    result = AdkGeminiLiveStream._translate_function_calls(dumped)
+    assert len(result) == 2
+    assert result[0]["tool"] == "generate_image"
+    assert result[1]["tool"] == "report_clinical_alert"
+    assert result[1]["args"]["primary_emotion"] == "fear"
+
+
 def test_translate_text_tool_marker_for_clinical_alert() -> None:
     """Text marker for report_clinical_alert must be translated in text_fallback mode."""
     dumped: dict = {

@@ -202,7 +202,5 @@ async def run_duplex_bridge(
         await stream.close()
         snapshot = metrics.snapshot()
         logger.info("bridge_metrics session=%s %s", session_id, snapshot)
-        if uvicorn_logger is not logger:
-            uvicorn_logger.info("bridge_metrics session=%s %s", session_id, snapshot)
 
     return metrics

@@ -46,8 +46,7 @@ async def test_vision_deriver_returns_structured_traits_on_success() -> None:
     mock_response = _build_mock_genai_response(vision_json)
 
     mock_client = MagicMock()
-    mock_client.models = MagicMock()
-    mock_client.models.generate_content = AsyncMock(return_value=mock_response)
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
     deriver = VisionPersonaDeriver(client=mock_client, model="gemini-3.1-flash-lite-preview")
 
@@ -65,7 +64,7 @@ async def test_vision_deriver_returns_structured_traits_on_success() -> None:
     assert "Luna" in result["greeting_text"] or "Drago" in result["greeting_text"]
 
     # Verify the API was actually called with image content
-    mock_client.models.generate_content.assert_awaited_once()
+    mock_client.aio.models.generate_content.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -81,8 +80,7 @@ async def test_vision_deriver_returns_fallback_on_timeout() -> None:
     from app.services.vision_persona_deriver import VisionPersonaDeriver
 
     mock_client = MagicMock()
-    mock_client.models = MagicMock()
-    mock_client.models.generate_content = AsyncMock(
+    mock_client.aio.models.generate_content = AsyncMock(
         side_effect=TimeoutError("Vision API timed out")
     )
 
@@ -114,8 +112,7 @@ async def test_vision_deriver_returns_fallback_on_api_error() -> None:
     from app.services.vision_persona_deriver import VisionPersonaDeriver
 
     mock_client = MagicMock()
-    mock_client.models = MagicMock()
-    mock_client.models.generate_content = AsyncMock(
+    mock_client.aio.models.generate_content = AsyncMock(
         side_effect=Exception("500 Internal Server Error")
     )
 
@@ -149,8 +146,7 @@ async def test_vision_deriver_returns_fallback_on_malformed_response() -> None:
     mock_response = _build_mock_genai_response("this is not valid json {{{")
 
     mock_client = MagicMock()
-    mock_client.models = MagicMock()
-    mock_client.models.generate_content = AsyncMock(return_value=mock_response)
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
     deriver = VisionPersonaDeriver(client=mock_client, model="gemini-3.1-flash-lite-preview")
 

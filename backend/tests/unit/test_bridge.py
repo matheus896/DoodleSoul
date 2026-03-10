@@ -173,21 +173,6 @@ async def test_run_duplex_bridge_cancels_sibling_and_closes_stream_on_failure() 
     assert stream.closed is True
 
 
-@pytest.mark.asyncio
-async def test_run_duplex_bridge_emits_metrics_to_uvicorn_logger(caplog) -> None:
-    websocket = FakeWebSocket(
-        messages=[{"bytes": b"input-audio"}, {"type": "websocket.disconnect"}]
-    )
-    gemini_client = FakeGeminiClient(stream=FakeStream(events=[{"audio": b"output-audio"}]))
-
-    with caplog.at_level("INFO", logger="uvicorn.error"):
-        await run_duplex_bridge(websocket=websocket, gemini_client=gemini_client, session_id="s1")
-
-    assert any(
-        record.name == "uvicorn.error" and "bridge_metrics session=s1" in record.message
-        for record in caplog.records
-    )
-
 
 @pytest.mark.asyncio
 async def test_run_duplex_bridge_cancels_blocked_downstream_on_disconnect() -> None:

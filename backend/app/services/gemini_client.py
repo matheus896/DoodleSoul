@@ -450,11 +450,12 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         return base_instruction
 
     fallback_instruction = (
-        " If function calls are unavailable, emit exactly one line per call in this format and continue naturally: "
+        " If function calls are unavailable, you must emit text markers. "
+        "For clinical observations, this is MANDATORY and must be exactly: "
+        "[ANIMISM_TOOL_CALL] {\"tool\":\"report_clinical_alert\",\"args\":{\"primary_emotion\":\"...\",\"trigger\":\"...\",\"recommended_strategy\":\"...\",\"risk_level\":\"low\",\"child_quote_summary\":\"...\"}}. "
+        "For media generation, emit exactly one line per call in this format and continue naturally: "
         "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_image\",\"args\":{\"scene_id\":\"scene-1\",\"image_prompt\":\"...\",\"visual_traits\":[\"...\"],\"child_context\":\"...\"}} "
         "and later "
-        "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}. "
-        "For clinical observations emit: "
-        "[ANIMISM_TOOL_CALL] {\"tool\":\"report_clinical_alert\",\"args\":{\"primary_emotion\":\"...\",\"trigger\":\"...\",\"recommended_strategy\":\"...\",\"risk_level\":\"low\",\"child_quote_summary\":\"...\"}}."
+        "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}."
     )
     return base_instruction + fallback_instruction
