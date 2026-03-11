@@ -95,15 +95,16 @@ async function renderApp() {
 }
 
 function getStartButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector(".start-button");
-  if (!(button instanceof HTMLButtonElement)) {
+  const buttons = Array.from(container.querySelectorAll("button"));
+  const btn = buttons.find(b => b.textContent?.includes("Start") || b.textContent?.includes("Retry"));
+  if (!btn) {
     throw new Error("Start button not found");
   }
-  return button;
+  return btn as HTMLButtonElement;
 }
 
 function getConsentCheckbox(container: HTMLElement): HTMLInputElement {
-  const checkbox = container.querySelector(".consent-checkbox");
+  const checkbox = container.querySelector("input[type=\"checkbox\"]");
   if (!(checkbox instanceof HTMLInputElement)) {
     throw new Error("Consent checkbox not found");
   }

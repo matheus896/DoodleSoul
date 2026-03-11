@@ -268,14 +268,21 @@ export default function LiveInsightsPage() {
   const sessionId = searchParams.get("session_id");
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 
-  const { alerts, status, lastUpdated } = useLiveInsights(sessionId, apiBaseUrl);
+  const { alerts, status, lastUpdated, childName, sessionStartTime } = useLiveInsights(sessionId, apiBaseUrl);
 
-  // Session duration (counts up from 0)
+  // Session duration (calculated from backend start time if available)
   const [sessionDuration, setSessionDuration] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setSessionDuration((d) => d + 1), 1000);
+    const t = setInterval(() => {
+      if (sessionStartTime) {
+        setSessionDuration(Math.floor((Date.now() - sessionStartTime.getTime()) / 1000));
+      } else {
+        // Fallback to local ticking if no start time yet, or keep at 0
+        setSessionDuration((d) => d + 1);
+      }
+    }, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [sessionStartTime]);
   const minutes = String(Math.floor(sessionDuration / 60)).padStart(2, "0");
   const seconds = String(sessionDuration % 60).padStart(2, "0");
 
@@ -420,7 +427,7 @@ export default function LiveInsightsPage() {
                 color: "#64748B",
               }}
             >
-              Patient: Leo (Age 8)
+              Patient: {childName || "Loading..."} (Age 8)
               <span
                 style={{
                   display: "inline-flex",

@@ -187,16 +187,16 @@ test("start flow transitions to live state", async ({ page }) => {
   await installMediaAndSocketMocks(page, "open");
   await page.goto("/");
 
-  await page.getByLabel("Drawing Photo").setInputFiles({
+  await page.getByLabel("Drawing image file input").setInputFiles({
     name: "drawing.png",
     mimeType: "image/png",
     buffer: Buffer.from("hello"),
   });
   await page.getByLabel("Child's Name (optional)").fill("Luna");
   await page.getByRole("checkbox", { name: "Caregiver consent confirmed" }).check();
-  await page.getByRole("button", { name: "Start" }).click();
-  await expect(page.getByText("Status: Ready!")).toBeVisible();
-  await expect(page.getByText("Greeting: Hi Luna, I'm your friend from the drawing!")).toBeVisible();
+  await page.getByRole("button", { name: /Start Adventure/i }).click();
+  await expect(page.getByText("Session Active")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText("Hi Luna, I'm your friend from the drawing!")).toBeVisible();
 
   await page.evaluate(() => {
     (window as unknown as { __emitWorkletChunk: (() => void) | null }).__emitWorkletChunk?.();
@@ -229,15 +229,15 @@ test("start flow transitions to error state on websocket failure", async ({ page
   await installMediaAndSocketMocks(page, "error");
   await page.goto("/");
 
-  await page.getByLabel("Drawing Photo").setInputFiles({
+  await page.getByLabel("Drawing image file input").setInputFiles({
     name: "drawing.png",
     mimeType: "image/png",
     buffer: Buffer.from("hello"),
   });
   await page.getByRole("checkbox", { name: "Caregiver consent confirmed" }).check();
-  await page.getByRole("button", { name: "Start" }).click();
-  await expect(page.getByText("Status: Error")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+  await page.getByRole("button", { name: /Start Adventure/i }).click();
+  // Wait for the button to change to "Retry Adventure"
+  await expect(page.getByRole("button", { name: /Retry Adventure/i })).toBeVisible();
 });
 
 
@@ -245,8 +245,7 @@ test("start flow blocks when consent is not confirmed", async ({ page }) => {
   await installMediaAndSocketMocks(page, "open");
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Start" }).click();
-  await expect(page.getByText("Status: Error")).toBeVisible();
+  await page.getByRole("button", { name: /Start Adventure/i }).click();
   await expect(page.getByRole("alert")).toContainText("consent");
 
   const wsUrls = await page.evaluate(() => {

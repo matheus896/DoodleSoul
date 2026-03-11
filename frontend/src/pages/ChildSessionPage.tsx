@@ -666,7 +666,8 @@ function LiveView({
   return (
     <div
       style={{
-        minHeight: "100vh",
+        height: "100vh",
+        overflow: "hidden",
         background: "linear-gradient(160deg, #FFF7ED 0%, #EEF2FF 100%)",
         display: "flex",
         flexDirection: "column",
@@ -756,7 +757,7 @@ function LiveView({
         </button>
       </header>
 
-      <div style={{ flex: 1, padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <div style={{ flex: 1, padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem", overflowY: "auto" }}>
         {/* Persona card */}
         <div
           style={{

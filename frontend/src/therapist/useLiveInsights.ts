@@ -15,6 +15,8 @@ export interface ClinicalAlert {
 
 interface InsightsData {
   session_id: string;
+  child_name?: string;
+  session_start_time?: string;
   alerts: ClinicalAlert[];
 }
 
@@ -30,6 +32,8 @@ interface UseLiveInsightsReturn {
   status: InsightsStatus;
   errorMessage: string | null;
   lastUpdated: Date | null;
+  childName?: string;
+  sessionStartTime?: Date | null;
 }
 
 const POLL_INTERVAL_MS = 3000;
@@ -42,6 +46,8 @@ export function useLiveInsights(
   const [status, setStatus] = useState<InsightsStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [childName, setChildName] = useState<string | undefined>(undefined);
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -66,6 +72,12 @@ export function useLiveInsights(
           setStatus("ok");
           setErrorMessage(null);
           setLastUpdated(new Date());
+          if (payload.data.child_name) {
+            setChildName(payload.data.child_name);
+          }
+          if (payload.data.session_start_time) {
+            setSessionStartTime(new Date(payload.data.session_start_time));
+          }
         } else {
           setStatus("error");
           setErrorMessage("Unexpected response from server.");
@@ -88,5 +100,5 @@ export function useLiveInsights(
     };
   }, [sessionId, apiBaseUrl]);
 
-  return { alerts, status, errorMessage, lastUpdated };
+  return { alerts, status, errorMessage, lastUpdated, childName, sessionStartTime };
 }

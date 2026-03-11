@@ -38,6 +38,12 @@ class InMemoryConsentStore:
         self._records.append(record)
         return record
 
+    def get(self, session_id: str) -> ConsentRecord | None:
+        for record in self._records:
+            if record.session_id == session_id:
+                return record
+        return None
+
 
 class StartSessionRequest(BaseModel):
     caregiver_consent: bool | None = Field(default=None)
@@ -239,7 +245,19 @@ async def get_insights(session_id: str):
                 },
             },
         )
+    data = store.get_insights(session_id)
+    grounding_store = get_session_grounding_store()
+    pending = grounding_store.get_pending_drawing(session_id)
+    child_name = ""
+    if pending and pending.child_context:
+        child_name = pending.child_context.get("child_name") or ""
+        
+    consent_record = _consent_store.get(session_id)
+    
+    data["child_name"] = child_name
+    data["session_start_time"] = consent_record.consent_captured_at if consent_record else None
+    
     return {
         "status": "ok",
-        "data": store.get_insights(session_id),
+        "data": data,
     }

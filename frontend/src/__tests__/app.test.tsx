@@ -6,8 +6,8 @@ import App from "../App";
 describe("App playback wiring", () => {
   it("renders without crashing (SSR baseline)", () => {
     const html = renderToString(<App />);
-    expect(html).toContain("A(I)nimism Studio");
-    expect(html).toContain("Start");
+    expect(html).toContain("DoodleSoul");
+    expect(html).toContain("Start Adventure");
   });
 
   it("does not import Pcm24kPlayer in the module graph", async () => {
@@ -18,6 +18,6 @@ describe("App playback wiring", () => {
 
   it("exports PlaybackMetrics type (compile-time contract)", () => {
     const html = renderToString(<App />);
-    expect(html).toContain("Status");
+    expect(html).toContain("DoodleSoul");
   });
 });
