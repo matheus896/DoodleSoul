@@ -103,6 +103,12 @@ async def test_extract_and_log_writes_payload_and_summary_to_store(monkeypatch) 
     fake_store.register_session("s-test")
     monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
 
+    # Mock DLP to approve
+    from app.services import dlp_gatekeeper
+    async def _mock_redact(p, mode=None):
+        return dlp_gatekeeper.DLPDecision(True, p, "ok")
+    monkeypatch.setattr(dlp_gatekeeper, "inspect_and_redact", _mock_redact)
+
     await clinical_extractor.extract_and_log(
         alert_payload={"primary_emotion": "anxiety", "risk_level": "high"},
         session_id="s-test",
@@ -113,6 +119,33 @@ async def test_extract_and_log_writes_payload_and_summary_to_store(monkeypatch) 
     assert insights["payloads"][0]["primary_emotion"] == "anxiety"
     assert len(insights["summaries"]) == 1
     assert "anxiety" in insights["summaries"][0]
+
+
+@pytest.mark.asyncio
+async def test_extract_and_log_discards_on_dlp_failure(monkeypatch, caplog) -> None:
+    """If DLP rejects, payload must not be persisted to the store."""
+    fake_store = ClinicalSessionStore()
+    fake_store.register_session("s-test-dlp")
+    monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
+
+    from app.services import dlp_gatekeeper
+    async def _mock_redact(p, mode=None):
+        return dlp_gatekeeper.DLPDecision(False, None, "dlp_redaction_discarded_policy")
+    monkeypatch.setattr(dlp_gatekeeper, "inspect_and_redact", _mock_redact)
+
+    with caplog.at_level("WARNING", logger="app.services.clinical_extractor"):
+        await clinical_extractor.extract_and_log(
+            alert_payload={"primary_emotion": "toxic", "risk_level": "high"},
+            session_id="s-test-dlp",
+        )
+
+    # No writes to store
+    insights = fake_store.get_insights("s-test-dlp")
+    assert len(insights["payloads"]) == 0
+    assert len(insights["summaries"]) == 0
+
+    assert any("clinical_extraction_discarded" in record.message for record in caplog.records)
+
 
 
 @pytest.mark.asyncio
@@ -135,6 +168,11 @@ async def test_schedule_extraction_passes_session_id(monkeypatch) -> None:
     fake_store = ClinicalSessionStore()
     fake_store.register_session("s-sched")
     monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
+
+    from app.services import dlp_gatekeeper
+    async def _mock_redact(p, mode=None):
+        return dlp_gatekeeper.DLPDecision(True, p, "ok")
+    monkeypatch.setattr(dlp_gatekeeper, "inspect_and_redact", _mock_redact)
 
     task = clinical_extractor.schedule_extraction(
         alert_payload={"primary_emotion": "fear"},

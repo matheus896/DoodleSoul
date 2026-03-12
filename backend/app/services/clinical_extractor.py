@@ -35,6 +35,8 @@ def build_clinical_summary(payload: dict[str, Any]) -> str:
     )
 
 
+from app.services import dlp_gatekeeper
+
 async def extract_and_log(
     *,
     alert_payload: dict,
@@ -46,18 +48,41 @@ async def extract_and_log(
             alert_payload=alert_payload,
             transcript_snapshot=transcript_snapshot,
         )
-        summary = build_clinical_summary(payload)
+
+        decision = await dlp_gatekeeper.inspect_and_redact(payload)
+        if not decision.is_approved:
+            logger.warning(
+                "clinical_extraction_discarded session_id=%s reason=%s",
+                session_id or "unknown",
+                decision.reason,
+            )
+            from app.integrations import cloud_audit_logger
+            cloud_audit_logger.emit_audit_event(
+                session_id=session_id or "unknown",
+                event_type="dlp_redaction_discarded",
+                metadata={"reason": decision.reason}
+            )
+            return
+
+        redacted_payload = decision.redacted_payload or {}
+        summary = build_clinical_summary(redacted_payload)
 
         # WS3 — persist to clinical store when session_id is available
         if session_id is not None:
             store = get_clinical_session_store()
-            store.add_payload(session_id, payload)
+            store.add_payload(session_id, redacted_payload)
             store.add_summary(session_id, summary)
 
         # WS5 — Tier 1 structured observability
         logger.info(
             "clinical_extraction_completed session_id=%s",
             session_id or "unknown",
+        )
+        from app.integrations import cloud_audit_logger
+        cloud_audit_logger.emit_audit_event(
+            session_id=session_id or "unknown",
+            event_type="dlp_redaction_applied",
+            metadata={"reason": decision.reason}
         )
     except Exception:
         logger.warning("clinical_extractor failed silently", exc_info=True)

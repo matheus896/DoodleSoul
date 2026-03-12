@@ -22,6 +22,7 @@ import {
   buildLiveWebSocketUrl,
   requestSessionStart,
   validateConsentForStart,
+  requestSessionEnd,
 } from "../session/startSession";
 
 /* ── Types ── */
@@ -891,6 +892,7 @@ export default function ChildSessionPage() {
   const [initialGreeting, setInitialGreeting] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [sessionDuration, setSessionDuration] = useState(0);
+  const [activeSessionId, setActiveSessionId] = useState("");
 
   const { scenes, dispatchMediaEvent, reset: resetTimeline } = useMediaTimeline();
 
@@ -996,6 +998,7 @@ export default function ChildSessionPage() {
         (import.meta.env.VITE_WS_URL_TEMPLATE as string | undefined) ??
         (import.meta.env.VITE_WS_URL as string | undefined);
       const sessionId = await requestSessionStart(apiBaseUrl);
+      setActiveSessionId(sessionId);
 
       setAppState("deriving_persona");
       try {
@@ -1109,8 +1112,12 @@ export default function ChildSessionPage() {
 
       websocket.onclose = () => {
         playbackNodeRef.current?.port.postMessage({ command: "getMetrics" });
+        // Instead of leaving AudioContexts running, we assume abnormal close means session is over.
+        void captureContextRef.current?.close();
+        void playbackContextRef.current?.close();
+        if (timerRef.current) clearInterval(timerRef.current);
         setAppState((prev) => {
-          if (prev !== "error") setActionMessage("Session ended. Click Retry to connect again.");
+          if (prev !== "error" && prev !== "idle") setActionMessage("Session ended. Click Retry to connect again.");
           return "error";
         });
       };
@@ -1121,7 +1128,7 @@ export default function ChildSessionPage() {
     }
   };
 
-  const endSession = () => {
+  const cleanupLocalResources = () => {
     websocketRef.current?.close();
     void captureContextRef.current?.close();
     void playbackContextRef.current?.close();
@@ -1129,6 +1136,34 @@ export default function ChildSessionPage() {
     setActionMessage("");
     resetTimeline();
     setSessionDuration(0);
+    setActiveSessionId("");
+  };
+
+  const endSession = async () => {
+    // 1. Explicit sign-off trigger path in live session orchestration
+    if (websocketRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        websocketRef.current.send(JSON.stringify({
+          type: "text",
+          text: "The session is ending. Please say a brief, warm goodbye."
+        }));
+      } catch (err) {
+        console.warn("Could not send sign-off trigger", err);
+      }
+    }
+
+    // 2. Attempt graceful backend signoff
+    if (activeSessionId) {
+      try {
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+        await requestSessionEnd(activeSessionId, apiBaseUrl);
+      } catch (err) {
+        console.warn("Backend session end failed", err);
+      }
+    }
+    
+    // 3. Always cleanup local resources
+    cleanupLocalResources();
   };
 
   if (appState === "ready") {

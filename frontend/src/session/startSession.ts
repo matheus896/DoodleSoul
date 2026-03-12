@@ -90,3 +90,15 @@ export async function requestSessionStart(apiBaseUrl?: string): Promise<string> 
 
   return payload.data.session_id;
 }
+
+export async function requestSessionEnd(sessionId: string, apiBaseUrl?: string): Promise<void> {
+  const base = (apiBaseUrl ?? "").replace(/\/+$/, "");
+  const endpoint = `${base}/api/session/${sessionId}/end`;
+
+  await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+  });
+}

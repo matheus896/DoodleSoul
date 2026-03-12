@@ -133,6 +133,11 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
     child_safe_websocket = ChildSafeWebSocket(websocket)
 
     store = get_session_grounding_store()
+    if store.is_closed(session_id):
+        logger.warning("Rejected websocket connection for closed session_id=%s", session_id)
+        await websocket.close(code=1008)
+        return
+
     persona_ctx = store.get_persona(session_id)
     persona_data: dict | None = None
     if persona_ctx is not None:
@@ -151,6 +156,12 @@ async def ws_live(websocket: WebSocket, session_id: str) -> None:
     logger.info(
         "session_started session_id=%s live_mode=%s tool_mode=%s",
         session_id, live_mode, tool_mode,
+    )
+    from app.integrations import cloud_audit_logger
+    cloud_audit_logger.emit_audit_event(
+        session_id=session_id,
+        event_type="session_started",
+        metadata={"live_mode": live_mode, "tool_mode": tool_mode}
     )
     logger.info(
         "ws_live session=%s persona_grounded=%s persona_data=%s",

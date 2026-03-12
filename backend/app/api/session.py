@@ -261,3 +261,39 @@ async def get_insights(session_id: str):
         "status": "ok",
         "data": data,
     }
+
+@router.post("/api/session/{session_id}/end")
+async def end_session(session_id: str):
+    if not _session_grounding_store.has_session(session_id):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "status": "error",
+                "error": {
+                    "code": "session_not_found",
+                    "message": "Session not found.",
+                },
+            },
+        )
+    
+    # Mark session as closed
+    _session_grounding_store.mark_closed(session_id)
+    
+    ended_at = datetime.now(UTC).isoformat()
+    
+    # WS5 — Tier 1 structured observability + Audit
+    logger.info("session_ended session_id=%s ended_at=%s", session_id, ended_at)
+    from app.integrations import cloud_audit_logger
+    cloud_audit_logger.emit_audit_event(
+        session_id=session_id,
+        event_type="session_end",
+        metadata={"ended_at": ended_at, "end_reason": "caregiver_requested"}
+    )
+    
+    return {
+        "status": "ok",
+        "data": {
+            "session_id": session_id,
+            "ended_at": ended_at,
+        }
+    }
