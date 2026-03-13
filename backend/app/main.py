@@ -3,6 +3,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.session import init_vision_deriver
@@ -49,6 +50,15 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(title="A(I)nimism Studio Backend", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # hackathon demo — restrict in production
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(session_router)
 app.include_router(ws_router)
 

@@ -57,7 +57,8 @@ export function buildLiveWebSocketUrl({
       return `${livePathMatch[1]}/${sessionId}`;
     }
 
-    return `${normalizedTemplate}/${sessionId}`;
+    const wsBase = normalizedTemplate.replace(/^http/i, "ws");
+    return `${wsBase}/ws/live/${sessionId}`;
   }
 
   const base = (apiBaseUrl ?? window.location.origin).replace(/\/+$/, "");
