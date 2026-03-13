@@ -7,6 +7,7 @@ from starlette.testclient import TestClient
 
 from app.main import app
 from app.services.clinical_session_store import get_clinical_session_store
+from app.api.session import _session_grounding_store
 
 
 @pytest.fixture(autouse=True)
@@ -14,8 +15,10 @@ def _clean_clinical_store():
     """Ensure a clean clinical store for each test."""
     store = get_clinical_session_store()
     store._sessions.clear()
+    _session_grounding_store._sessions.clear()
     yield
     store._sessions.clear()
+    _session_grounding_store._sessions.clear()
 
 
 def test_insights_endpoint_returns_session_not_found_for_unknown_session() -> None:
@@ -40,6 +43,8 @@ def test_insights_endpoint_returns_empty_data_for_registered_session() -> None:
     assert body["data"]["alerts"] == []
     assert body["data"]["payloads"] == []
     assert body["data"]["summaries"] == []
+    assert body["data"]["is_closed"] is False
+    assert body["data"]["ended_at"] is None
 
 
 def test_insights_endpoint_returns_stored_alerts_and_payloads() -> None:
@@ -75,3 +80,21 @@ def test_insights_endpoint_multiple_alerts_accumulate() -> None:
     assert response.status_code == 200
     data = response.json()["data"]
     assert len(data["alerts"]) == 3
+
+
+def test_insights_endpoint_returns_closed_state_from_grounding_store() -> None:
+    client = TestClient(app)
+    response = client.post("/api/session/start", json={"caregiver_consent": True})
+    session_id = response.json()["data"]["session_id"]
+
+    clinical_store = get_clinical_session_store()
+    clinical_store.register_session(session_id)
+
+    end_response = client.post(f"/api/session/{session_id}/end")
+    ended_at = end_response.json()["data"]["ended_at"]
+
+    insights_response = client.get(f"/api/dashboard/insights/{session_id}")
+    assert insights_response.status_code == 200
+    data = insights_response.json()["data"]
+    assert data["is_closed"] is True
+    assert data["ended_at"] == ended_at

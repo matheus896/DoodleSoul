@@ -256,6 +256,8 @@ async def get_insights(session_id: str):
     
     data["child_name"] = child_name
     data["session_start_time"] = consent_record.consent_captured_at if consent_record else None
+    data["is_closed"] = grounding_store.is_closed(session_id)
+    data["ended_at"] = grounding_store.get_ended_at(session_id)
     
     return {
         "status": "ok",
@@ -276,19 +278,27 @@ async def end_session(session_id: str):
             },
         )
     
-    # Mark session as closed
-    _session_grounding_store.mark_closed(session_id)
-    
-    ended_at = datetime.now(UTC).isoformat()
+    existing_ended_at = _session_grounding_store.get_ended_at(session_id)
+    ended_at = existing_ended_at or datetime.now(UTC).isoformat()
+
+    # Mark session as closed with deterministic ended_at across repeated calls.
+    _session_grounding_store.mark_closed(session_id, ended_at=ended_at)
     
     # WS5 — Tier 1 structured observability + Audit
     logger.info("session_ended session_id=%s ended_at=%s", session_id, ended_at)
     from app.integrations import cloud_audit_logger
-    cloud_audit_logger.emit_audit_event(
-        session_id=session_id,
-        event_type="session_end",
-        metadata={"ended_at": ended_at, "end_reason": "caregiver_requested"}
-    )
+    if existing_ended_at is None:
+        cloud_audit_logger.emit_audit_event(
+            session_id=session_id,
+            event_type="session_end",
+            metadata={"ended_at": ended_at, "end_reason": "caregiver_requested"}
+        )
+    else:
+        cloud_audit_logger.emit_audit_event(
+            session_id=session_id,
+            event_type="session_end_idempotent",
+            metadata={"ended_at": ended_at, "end_reason": "already_closed"}
+        )
     
     return {
         "status": "ok",

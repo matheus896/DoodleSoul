@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 
 from app.main import app
 from app.api.session import _session_grounding_store, _consent_store
@@ -23,20 +24,31 @@ def test_post_session_end_success(client: TestClient) -> None:
     assert _session_grounding_store.is_closed(session_id) is False
 
     # Act: End the session
-    res_end = client.post(f"/api/session/{session_id}/end")
+    with patch("app.integrations.cloud_audit_logger.emit_audit_event") as audit_mock:
+        res_end = client.post(f"/api/session/{session_id}/end")
+
+        assert audit_mock.call_count == 1
+        assert audit_mock.call_args.kwargs["event_type"] == "session_end"
 
     # Assert: Should be closed and idempotent
     assert res_end.status_code == 200
     assert res_end.json()["status"] == "ok"
     assert res_end.json()["data"]["session_id"] == session_id
     assert "ended_at" in res_end.json()["data"]
+    first_ended_at = res_end.json()["data"]["ended_at"]
 
     # Verify state in store
     assert _session_grounding_store.is_closed(session_id) is True
 
     # Calling it again should be idempotent 
-    res_end_again = client.post(f"/api/session/{session_id}/end")
+    with patch("app.integrations.cloud_audit_logger.emit_audit_event") as audit_mock:
+        res_end_again = client.post(f"/api/session/{session_id}/end")
+
+        assert audit_mock.call_count == 1
+        assert audit_mock.call_args.kwargs["event_type"] == "session_end_idempotent"
+
     assert res_end_again.status_code == 200
+    assert res_end_again.json()["data"]["ended_at"] == first_ended_at
 
 
 def test_post_session_end_not_found(client: TestClient) -> None:

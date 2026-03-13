@@ -268,11 +268,18 @@ export default function LiveInsightsPage() {
   const sessionId = searchParams.get("session_id");
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 
-  const { alerts, status, lastUpdated, childName, sessionStartTime } = useLiveInsights(sessionId, apiBaseUrl);
+  const { alerts, status, lastUpdated, childName, sessionStartTime, isClosed, endedAt } = useLiveInsights(sessionId, apiBaseUrl);
 
   // Session duration (calculated from backend start time if available)
   const [sessionDuration, setSessionDuration] = useState(0);
   useEffect(() => {
+    if (isClosed) {
+      if (sessionStartTime && endedAt) {
+        setSessionDuration(Math.max(0, Math.floor((endedAt.getTime() - sessionStartTime.getTime()) / 1000)));
+      }
+      return;
+    }
+
     const t = setInterval(() => {
       if (sessionStartTime) {
         setSessionDuration(Math.floor((Date.now() - sessionStartTime.getTime()) / 1000));
@@ -282,7 +289,7 @@ export default function LiveInsightsPage() {
       }
     }, 1000);
     return () => clearInterval(t);
-  }, [sessionStartTime]);
+  }, [sessionStartTime, isClosed, endedAt]);
   const minutes = String(Math.floor(sessionDuration / 60)).padStart(2, "0");
   const seconds = String(sessionDuration % 60).padStart(2, "0");
 
@@ -433,7 +440,7 @@ export default function LiveInsightsPage() {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 4,
-                  color: "#16A34A",
+                  color: isClosed ? "#64748B" : "#16A34A",
                   fontWeight: 600,
                 }}
               >
@@ -442,12 +449,12 @@ export default function LiveInsightsPage() {
                     width: 8,
                     height: 8,
                     borderRadius: "50%",
-                    background: "#16A34A",
+                    background: isClosed ? "#64748B" : "#16A34A",
                     display: "inline-block",
-                    animation: "gentle-pulse 2s ease-in-out infinite",
+                    animation: isClosed ? "none" : "gentle-pulse 2s ease-in-out infinite",
                   }}
                 />
-                Live
+                {isClosed ? "Ended" : "Live"}
               </span>
             </div>
           </div>
@@ -871,7 +878,7 @@ export default function LiveInsightsPage() {
                     }}
                   />
                   {status === "loading" && "Connecting…"}
-                  {status === "ok" && `Live · updated ${lastUpdated?.toLocaleTimeString() ?? ""}`}
+                  {status === "ok" && `${isClosed ? "Ended" : "Live"} · updated ${lastUpdated?.toLocaleTimeString() ?? ""}`}
                   {status === "error" && "Connection error — retrying"}
                   {status === "idle" && "No session selected"}
                 </div>

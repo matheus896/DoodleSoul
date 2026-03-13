@@ -12,12 +12,31 @@ logger = logging.getLogger(__name__)
 
 # Fields known to contain strings that might be PII, and should NEVER be in audit logs
 PII_FIELDS = {
+    "child_name",
+    "child_context",
     "child_quote_summary",
     "transcript_input",
     "transcript_output",
     "payload",  # depending on usage
     "audio_chunk",
 }
+
+SCHEMA_VERSION = "1.0"
+
+
+def _sanitize_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        safe_dict: dict[str, Any] = {}
+        for key, nested_value in value.items():
+            if key in PII_FIELDS:
+                continue
+            safe_dict[key] = _sanitize_metadata(nested_value)
+        return safe_dict
+    if isinstance(value, list):
+        return [_sanitize_metadata(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_metadata(item) for item in value]
+    return value
 
 @dataclasses.dataclass
 class AuditEvent:
@@ -27,18 +46,15 @@ class AuditEvent:
     timestamp: str = dataclasses.field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat()
     )
+    schema_version: str = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
-        safe_metadata = {}
-        for k, v in self.metadata.items():
-            if k not in PII_FIELDS:
-                safe_metadata[k] = v
-
         return {
+            "schema_version": self.schema_version,
             "session_id": self.session_id,
             "event_type": self.event_type,
             "timestamp": self.timestamp,
-            "metadata": safe_metadata,
+            "metadata": _sanitize_metadata(self.metadata),
         }
 
 

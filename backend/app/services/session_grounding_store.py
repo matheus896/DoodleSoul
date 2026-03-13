@@ -37,6 +37,7 @@ class SessionGroundingState:
     bootstrap_context: BootstrapContextDict | None = None
     persona_context: PersonaContext | None = None
     is_closed: bool = False
+    ended_at: str | None = None
 
 
 class SessionGroundingStore:
@@ -55,9 +56,19 @@ class SessionGroundingStore:
             return False
         return state.is_closed
 
-    def mark_closed(self, session_id: str) -> None:
+    def get_ended_at(self, session_id: str) -> str | None:
+        state = self._sessions.get(session_id)
+        if state is None:
+            return None
+        return state.ended_at
+
+    def mark_closed(self, session_id: str, ended_at: str | None = None) -> str | None:
         self.register_session(session_id)
-        self._sessions[session_id].is_closed = True
+        state = self._sessions[session_id]
+        state.is_closed = True
+        if state.ended_at is None and ended_at is not None:
+            state.ended_at = ended_at
+        return state.ended_at
 
     def store_pending_drawing(
         self,

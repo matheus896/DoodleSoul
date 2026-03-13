@@ -1112,9 +1112,17 @@ export default function ChildSessionPage() {
 
       websocket.onclose = () => {
         playbackNodeRef.current?.port.postMessage({ command: "getMetrics" });
-        // Instead of leaving AudioContexts running, we assume abnormal close means session is over.
-        void captureContextRef.current?.close();
-        void playbackContextRef.current?.close();
+        // Abnormal close and manual end can race; close audio contexts idempotently.
+        const captureContext = captureContextRef.current;
+        captureContextRef.current = null;
+        if (captureContext && captureContext.state !== "closed") {
+          void captureContext.close().catch(() => {});
+        }
+        const playbackContext = playbackContextRef.current;
+        playbackContextRef.current = null;
+        if (playbackContext && playbackContext.state !== "closed") {
+          void playbackContext.close().catch(() => {});
+        }
         if (timerRef.current) clearInterval(timerRef.current);
         setAppState((prev) => {
           if (prev !== "error" && prev !== "idle") setActionMessage("Session ended. Click Retry to connect again.");
@@ -1130,8 +1138,18 @@ export default function ChildSessionPage() {
 
   const cleanupLocalResources = () => {
     websocketRef.current?.close();
-    void captureContextRef.current?.close();
-    void playbackContextRef.current?.close();
+    const captureContext = captureContextRef.current;
+    captureContextRef.current = null;
+    if (captureContext && captureContext.state !== "closed") {
+      void captureContext.close().catch(() => {});
+    }
+
+    const playbackContext = playbackContextRef.current;
+    playbackContextRef.current = null;
+    if (playbackContext && playbackContext.state !== "closed") {
+      void playbackContext.close().catch(() => {});
+    }
+
     setAppState("idle");
     setActionMessage("");
     resetTimeline();
