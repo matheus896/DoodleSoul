@@ -396,6 +396,17 @@ def build_live_run_config(*, run_config_cls: Any, streaming_mode_bidi: Any, type
         response_modalities=[types_module.Modality.AUDIO],
         output_audio_transcription=types_module.AudioTranscriptionConfig(),
         input_audio_transcription=types_module.AudioTranscriptionConfig(),
+        realtime_input_config=types_module.RealtimeInputConfig(
+            automatic_activity_detection=types_module.AutomaticActivityDetection(
+                disabled=False,
+                start_of_speech_sensitivity=types_module.StartSensitivity.START_SENSITIVITY_LOW,
+                end_of_speech_sensitivity=types_module.EndSensitivity.END_SENSITIVITY_LOW,
+                prefix_padding_ms=80,
+                silence_duration_ms=700,
+            ),
+            activity_handling=types_module.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+            turn_coverage=types_module.TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY,
+        ),
     )
 
 

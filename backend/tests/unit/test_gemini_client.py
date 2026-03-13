@@ -251,12 +251,38 @@ def test_translate_text_tool_marker_from_output_transcription() -> None:
     assert result[0]["args"]["video_prompt"] == "gentle motion"
 
 
-def test_build_live_run_config_uses_current_default_vad_behavior() -> None:
+def test_build_live_run_config_sets_conservative_realtime_input_config() -> None:
     created_audio_configs: list[object] = []
+    created_automatic_activity_detection: list[object] = []
+    created_realtime_input_configs: list[object] = []
 
     class FakeAudioTranscriptionConfig:
         def __init__(self) -> None:
             created_audio_configs.append(self)
+
+    class FakeAutomaticActivityDetection:
+        def __init__(
+            self,
+            *,
+            disabled: bool,
+            start_of_speech_sensitivity: str,
+            end_of_speech_sensitivity: str,
+            prefix_padding_ms: int,
+            silence_duration_ms: int,
+        ) -> None:
+            self.disabled = disabled
+            self.start_of_speech_sensitivity = start_of_speech_sensitivity
+            self.end_of_speech_sensitivity = end_of_speech_sensitivity
+            self.prefix_padding_ms = prefix_padding_ms
+            self.silence_duration_ms = silence_duration_ms
+            created_automatic_activity_detection.append(self)
+
+    class FakeRealtimeInputConfig:
+        def __init__(self, *, automatic_activity_detection: object, activity_handling: str, turn_coverage: str) -> None:
+            self.automatic_activity_detection = automatic_activity_detection
+            self.activity_handling = activity_handling
+            self.turn_coverage = turn_coverage
+            created_realtime_input_configs.append(self)
 
     class FakeRunConfig:
         def __init__(self, **kwargs) -> None:
@@ -265,6 +291,12 @@ def test_build_live_run_config_uses_current_default_vad_behavior() -> None:
     fake_types = SimpleNamespace(
         Modality=SimpleNamespace(AUDIO="audio"),
         AudioTranscriptionConfig=FakeAudioTranscriptionConfig,
+        RealtimeInputConfig=FakeRealtimeInputConfig,
+        AutomaticActivityDetection=FakeAutomaticActivityDetection,
+        StartSensitivity=SimpleNamespace(START_SENSITIVITY_LOW="start_low"),
+        EndSensitivity=SimpleNamespace(END_SENSITIVITY_LOW="end_low"),
+        ActivityHandling=SimpleNamespace(START_OF_ACTIVITY_INTERRUPTS="interrupt"),
+        TurnCoverage=SimpleNamespace(TURN_INCLUDES_ONLY_ACTIVITY="activity_only"),
     )
 
     config = build_live_run_config(
@@ -278,7 +310,18 @@ def test_build_live_run_config_uses_current_default_vad_behavior() -> None:
     assert len(created_audio_configs) == 2
     assert config.kwargs["output_audio_transcription"] is created_audio_configs[0]
     assert config.kwargs["input_audio_transcription"] is created_audio_configs[1]
-    assert "realtime_input_config" not in config.kwargs
+    assert len(created_automatic_activity_detection) == 1
+    assert len(created_realtime_input_configs) == 1
+    automatic_activity_detection = created_automatic_activity_detection[0]
+    realtime_input_config = created_realtime_input_configs[0]
+    assert realtime_input_config is config.kwargs["realtime_input_config"]
+    assert automatic_activity_detection.disabled is False
+    assert automatic_activity_detection.start_of_speech_sensitivity == "start_low"
+    assert automatic_activity_detection.end_of_speech_sensitivity == "end_low"
+    assert automatic_activity_detection.prefix_padding_ms == 80
+    assert automatic_activity_detection.silence_duration_ms == 700
+    assert realtime_input_config.activity_handling == "interrupt"
+    assert realtime_input_config.turn_coverage == "activity_only"
 
 
 def test_translate_text_tool_marker_inline_multiple_calls() -> None:

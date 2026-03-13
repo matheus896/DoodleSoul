@@ -34,7 +34,12 @@ import {
   Smile,
   Activity,
 } from "lucide-react";
+import { readActiveSessionId } from "../session/sessionStorage";
 import { useLiveInsights, type ClinicalAlert } from "./useLiveInsights";
+
+export function resolveLiveInsightsSessionId(searchParams: URLSearchParams): string | null {
+  return searchParams.get("session_id") ?? searchParams.get("sessionId") ?? readActiveSessionId();
+}
 
 /* ── Mock timeline frames ── */
 const MOCK_FRAMES = [
@@ -265,7 +270,7 @@ function NavItem({
 /* ── Main page ── */
 export default function LiveInsightsPage() {
   const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get("session_id");
+  const sessionId = resolveLiveInsightsSessionId(searchParams);
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 
   const { alerts, status, lastUpdated, childName, sessionStartTime, isClosed, endedAt } = useLiveInsights(sessionId, apiBaseUrl);
@@ -897,7 +902,7 @@ export default function LiveInsightsPage() {
                     }}
                   >
                     {status === "idle"
-                      ? "Add ?session_id=YOUR_ID to the URL to see live alerts."
+                      ? "Start from /session (or pass ?session_id=YOUR_ID) to see live alerts."
                       : "No alerts detected yet. Session is calm."}
                   </div>
                 ) : (

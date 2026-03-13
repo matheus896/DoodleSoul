@@ -18,6 +18,7 @@ import { parseMediaEvent } from "../media/mediaEventParser";
 import { NarrativeTimeline } from "../media/NarrativeTimeline";
 import { useMediaTimeline } from "../media/useMediaTimeline";
 import { derivePersonaFromDrawing } from "../session/personaDerivation";
+import { writeActiveSessionId } from "../session/sessionStorage";
 import {
   buildLiveWebSocketUrl,
   requestSessionStart,
@@ -999,6 +1000,7 @@ export default function ChildSessionPage() {
         (import.meta.env.VITE_WS_URL as string | undefined);
       const sessionId = await requestSessionStart(apiBaseUrl);
       setActiveSessionId(sessionId);
+      writeActiveSessionId(sessionId);
 
       setAppState("deriving_persona");
       try {

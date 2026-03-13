@@ -7,6 +7,7 @@ const {
   buildLiveWebSocketUrlMock,
   validateConsentForStartMock,
   derivePersonaFromDrawingMock,
+  writeActiveSessionIdMock,
 } = vi.hoisted(() => ({
   requestSessionStartMock: vi.fn<() => Promise<string>>(),
   buildLiveWebSocketUrlMock: vi.fn<() => string>(),
@@ -14,6 +15,7 @@ const {
     (caregiverConsent: boolean) => { ok: boolean; message?: string }
   >(),
   derivePersonaFromDrawingMock: vi.fn<() => Promise<{ greetingText: string }>>(),
+  writeActiveSessionIdMock: vi.fn<(sessionId: string) => void>(),
 }));
 
 vi.mock("../session/startSession", () => ({
@@ -24,6 +26,10 @@ vi.mock("../session/startSession", () => ({
 
 vi.mock("../session/personaDerivation", () => ({
   derivePersonaFromDrawing: derivePersonaFromDrawingMock,
+}));
+
+vi.mock("../session/sessionStorage", () => ({
+  writeActiveSessionId: writeActiveSessionIdMock,
 }));
 
 import App from "../App";
@@ -166,6 +172,7 @@ beforeEach(() => {
   buildLiveWebSocketUrlMock.mockReset();
   validateConsentForStartMock.mockReset();
   derivePersonaFromDrawingMock.mockReset();
+  writeActiveSessionIdMock.mockReset();
 
   requestSessionStartMock.mockResolvedValue("session-123");
   buildLiveWebSocketUrlMock.mockReturnValue("ws://example.test/ws/live/session-123");
@@ -277,6 +284,9 @@ describe("App drawing intake", () => {
       order.push("session_start");
       return "session-123";
     });
+    writeActiveSessionIdMock.mockImplementation((sessionId: string) => {
+      order.push(`session_storage:${sessionId}`);
+    });
     derivePersonaFromDrawingMock.mockImplementation(async () => {
       order.push("persona_derivation_started");
       return derivation.promise;
@@ -291,14 +301,20 @@ describe("App drawing intake", () => {
     await clickButton(getStartButton(container));
     await flushPromises();
 
-    expect(order).toEqual(["session_start", "persona_derivation_started"]);
+    expect(order).toEqual([
+      "session_start",
+      "session_storage:session-123",
+      "persona_derivation_started",
+    ]);
     expect(buildLiveWebSocketUrlMock).not.toHaveBeenCalled();
+    expect(writeActiveSessionIdMock).toHaveBeenCalledWith("session-123");
 
     derivation.resolve({ greetingText: "Hi, Luna!" });
     await flushPromises();
 
     expect(order).toEqual([
       "session_start",
+      "session_storage:session-123",
       "persona_derivation_started",
       "websocket_url_built",
     ]);

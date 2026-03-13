@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import ChildSessionPage from "./pages/ChildSessionPage";
+import DemoPage from "./pages/DemoPage";
 import TherapistDashboard from "./therapist/TherapistDashboard";
 import LiveInsightsPage from "./therapist/LiveInsightsPage";
 
@@ -14,6 +15,7 @@ createRoot(document.getElementById("root")!).render(
       <Routes>
         {/* Child experience */}
         <Route path="/session" element={<ChildSessionPage />} />
+        <Route path="/demo" element={<DemoPage />} />
 
         {/* Therapist area */}
         <Route path="/therapist" element={<TherapistDashboard />} />
