@@ -72,6 +72,7 @@ async def extract_and_log(
             store = get_clinical_session_store()
             store.add_payload(session_id, redacted_payload)
             store.add_summary(session_id, summary)
+            store.set_emotional_state(session_id, redacted_payload.get("primary_emotion", "calm"))
 
         # WS5 — Tier 1 structured observability
         logger.info(

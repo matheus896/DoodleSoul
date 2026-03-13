@@ -222,25 +222,27 @@ class MediaToolCallInterceptingStream:
             risk_level=alert_event["risk_level"],
         )
 
-        # WS3 — persist alert to clinical store
+        # WS3 — persist alert to clinical store (skip for risk_level "none" — positive/neutral states)
         alert_data = {key: value for key, value in alert_event.items() if key != "type"}
         store = get_clinical_session_store()
-        store.add_alert(self._session_id, alert_data)
+        is_actionable = alert_event.get("risk_level", "low") != "none"
+        if is_actionable:
+            store.add_alert(self._session_id, alert_data)
 
-        # WS5 — Tier 1 structured observability
-        logger.info(
-            "clinical_alert_stored session_id=%s emotion=%s risk=%s",
-            self._session_id, alert_event["primary_emotion"], alert_event["risk_level"],
-        )
-        from app.integrations import cloud_audit_logger
-        cloud_audit_logger.emit_audit_event(
-            session_id=self._session_id,
-            event_type="clinical_alert_stored",
-            metadata={
-                "primary_emotion": alert_event["primary_emotion"],
-                "risk_level": alert_event["risk_level"]
-            }
-        )
+            # WS5 — Tier 1 structured observability (only for actionable alerts)
+            logger.info(
+                "clinical_alert_stored session_id=%s emotion=%s risk=%s",
+                self._session_id, alert_event["primary_emotion"], alert_event["risk_level"],
+            )
+            from app.integrations import cloud_audit_logger
+            cloud_audit_logger.emit_audit_event(
+                session_id=self._session_id,
+                event_type="clinical_alert_stored",
+                metadata={
+                    "primary_emotion": alert_event["primary_emotion"],
+                    "risk_level": alert_event["risk_level"]
+                }
+            )
 
         try:
             task = clinical_extractor.schedule_extraction(

@@ -187,3 +187,55 @@ async def test_schedule_extraction_passes_session_id(monkeypatch) -> None:
 
     insights = fake_store.get_insights("s-sched")
     assert len(insights["payloads"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# emotional_state_current — WS-FinalMile: extractor must update store state
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_extract_and_log_updates_emotional_state_in_store(monkeypatch) -> None:
+    """After successful extraction, store.set_emotional_state must reflect primary_emotion."""
+    fake_store = ClinicalSessionStore()
+    fake_store.register_session("s-emo-ex")
+    monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
+
+    from app.services import dlp_gatekeeper
+
+    async def _mock_redact(p, mode=None):
+        return dlp_gatekeeper.DLPDecision(True, p, "ok")
+
+    monkeypatch.setattr(dlp_gatekeeper, "inspect_and_redact", _mock_redact)
+
+    await clinical_extractor.extract_and_log(
+        alert_payload={"primary_emotion": "excited", "risk_level": "low"},
+        session_id="s-emo-ex",
+    )
+
+    insights = fake_store.get_insights("s-emo-ex")
+    assert insights["emotional_state_current"] == "excited"
+
+
+@pytest.mark.asyncio
+async def test_extract_and_log_dlp_discard_does_not_update_emotional_state(monkeypatch) -> None:
+    """If DLP rejects, emotional_state_current must NOT be updated."""
+    fake_store = ClinicalSessionStore()
+    fake_store.register_session("s-emo-dlp")
+    monkeypatch.setattr(clinical_extractor, "get_clinical_session_store", lambda: fake_store)
+
+    from app.services import dlp_gatekeeper
+
+    async def _mock_redact(p, mode=None):
+        return dlp_gatekeeper.DLPDecision(False, None, "dlp_rejected")
+
+    monkeypatch.setattr(dlp_gatekeeper, "inspect_and_redact", _mock_redact)
+
+    await clinical_extractor.extract_and_log(
+        alert_payload={"primary_emotion": "toxic"},
+        session_id="s-emo-dlp",
+    )
+
+    # State must remain default "calm"
+    insights = fake_store.get_insights("s-emo-dlp")
+    assert insights["emotional_state_current"] == "calm"

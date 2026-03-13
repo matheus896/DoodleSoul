@@ -98,3 +98,31 @@ def test_insights_endpoint_returns_closed_state_from_grounding_store() -> None:
     data = insights_response.json()["data"]
     assert data["is_closed"] is True
     assert data["ended_at"] == ended_at
+
+
+# ---------------------------------------------------------------------------
+# emotional_state_current — WS-FinalMile backend authority
+# ---------------------------------------------------------------------------
+
+
+def test_insights_endpoint_emotional_state_defaults_to_calm() -> None:
+    store = get_clinical_session_store()
+    store.register_session("s-emo-calm")
+
+    client = TestClient(app)
+    response = client.get("/api/dashboard/insights/s-emo-calm")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["emotional_state_current"] == "calm"
+
+
+def test_insights_endpoint_includes_emotional_state_from_store() -> None:
+    store = get_clinical_session_store()
+    store.register_session("s-emo-happy")
+    store.set_emotional_state("s-emo-happy", "joyful")
+
+    client = TestClient(app)
+    response = client.get("/api/dashboard/insights/s-emo-happy")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["emotional_state_current"] == "joyful"

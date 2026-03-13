@@ -20,6 +20,7 @@ interface InsightsData {
   is_closed?: boolean;
   ended_at?: string | null;
   alerts: ClinicalAlert[];
+  emotional_state_current?: string;
 }
 
 interface InsightsResponse {
@@ -38,6 +39,7 @@ interface UseLiveInsightsReturn {
   sessionStartTime?: Date | null;
   isClosed: boolean;
   endedAt: Date | null;
+  emotionalStateCurrent?: string;
 }
 
 const POLL_INTERVAL_MS = 3000;
@@ -54,6 +56,7 @@ export function useLiveInsights(
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [isClosed, setIsClosed] = useState(false);
   const [endedAt, setEndedAt] = useState<Date | null>(null);
+  const [emotionalStateCurrent, setEmotionalStateCurrent] = useState<string | undefined>(undefined);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -87,6 +90,9 @@ export function useLiveInsights(
           const closed = payload.data.is_closed === true;
           setIsClosed(closed);
           setEndedAt(payload.data.ended_at ? new Date(payload.data.ended_at) : null);
+          if (payload.data.emotional_state_current) {
+            setEmotionalStateCurrent(payload.data.emotional_state_current);
+          }
           // Stop polling once backend confirms session is closed — no further state changes expected.
           if (closed && intervalRef.current) {
             clearInterval(intervalRef.current);
@@ -123,5 +129,6 @@ export function useLiveInsights(
     sessionStartTime,
     isClosed,
     endedAt,
+    emotionalStateCurrent,
   };
 }

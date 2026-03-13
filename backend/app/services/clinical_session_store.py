@@ -16,6 +16,7 @@ class ClinicalSessionState:
     payloads: list[dict] = field(default_factory=list)
     summaries: list[str] = field(default_factory=list)
     transcript_snapshots: list[dict] = field(default_factory=list)
+    emotional_state_current: str = "calm"
 
 
 class ClinicalSessionStore:
@@ -40,6 +41,10 @@ class ClinicalSessionStore:
         self.register_session(session_id)
         self._sessions[session_id].summaries.append(str(summary))
 
+    def set_emotional_state(self, session_id: str, state: str) -> None:
+        self.register_session(session_id)
+        self._sessions[session_id].emotional_state_current = str(state)
+
     def get_alerts(self, session_id: str) -> list[dict]:
         state = self._sessions.get(session_id)
         if state is None:
@@ -49,12 +54,13 @@ class ClinicalSessionStore:
     def get_insights(self, session_id: str) -> dict:
         state = self._sessions.get(session_id)
         if state is None:
-            return {"session_id": session_id, "alerts": [], "payloads": [], "summaries": []}
+            return {"session_id": session_id, "alerts": [], "payloads": [], "summaries": [], "emotional_state_current": "calm"}
         return {
             "session_id": session_id,
             "alerts": list(state.alerts),
             "payloads": list(state.payloads),
             "summaries": list(state.summaries),
+            "emotional_state_current": state.emotional_state_current,
         }
 
 

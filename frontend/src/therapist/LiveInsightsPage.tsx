@@ -273,7 +273,7 @@ export default function LiveInsightsPage() {
   const sessionId = resolveLiveInsightsSessionId(searchParams);
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 
-  const { alerts, status, lastUpdated, childName, sessionStartTime, isClosed, endedAt } = useLiveInsights(sessionId, apiBaseUrl);
+  const { alerts, status, lastUpdated, childName, sessionStartTime, isClosed, endedAt, emotionalStateCurrent } = useLiveInsights(sessionId, apiBaseUrl);
 
   // Session duration (calculated from backend start time if available)
   const [sessionDuration, setSessionDuration] = useState(0);
@@ -301,7 +301,8 @@ export default function LiveInsightsPage() {
   // Derive aggregate KPIs from latest alerts
   const latestAlert = alerts[alerts.length - 1];
   const hasHighRisk = alerts.some((a) => a.risk_level === "high");
-  const emotionalState = latestAlert?.primary_emotion ?? "Calm";
+  // Priority: backend authoritative state > last alert emotion > default "Calm"
+  const emotionalState = emotionalStateCurrent ?? latestAlert?.primary_emotion ?? "Calm";
   const triggerCount = alerts.filter((a) => a.trigger).length;
 
   return (

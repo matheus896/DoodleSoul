@@ -127,3 +127,44 @@ def test_sessions_are_isolated() -> None:
     assert len(store.get_alerts("s2")) == 1
     assert store.get_alerts("s1")[0]["emotion"] == "fear"
     assert store.get_alerts("s2")[0]["emotion"] == "anger"
+
+
+# ---------------------------------------------------------------------------
+# emotional_state_current — WS-FinalMile backend authority
+# ---------------------------------------------------------------------------
+
+
+def test_emotional_state_defaults_to_calm() -> None:
+    store = ClinicalSessionStore()
+    store.register_session("s-emo")
+    insights = store.get_insights("s-emo")
+    assert insights["emotional_state_current"] == "calm"
+
+
+def test_set_emotional_state_updates_insights() -> None:
+    store = ClinicalSessionStore()
+    store.register_session("s-emo")
+    store.set_emotional_state("s-emo", "happy")
+    insights = store.get_insights("s-emo")
+    assert insights["emotional_state_current"] == "happy"
+
+
+def test_set_emotional_state_auto_registers_session() -> None:
+    store = ClinicalSessionStore()
+    store.set_emotional_state("s-emo-new", "excited")
+    assert store.has_session("s-emo-new")
+    assert store.get_insights("s-emo-new")["emotional_state_current"] == "excited"
+
+
+def test_emotional_state_unknown_session_returns_calm() -> None:
+    store = ClinicalSessionStore()
+    insights = store.get_insights("s-ghost")
+    assert insights["emotional_state_current"] == "calm"
+
+
+def test_emotional_state_updates_overwrite_previous() -> None:
+    store = ClinicalSessionStore()
+    store.register_session("s-emo")
+    store.set_emotional_state("s-emo", "anxious")
+    store.set_emotional_state("s-emo", "joyful")
+    assert store.get_insights("s-emo")["emotional_state_current"] == "joyful"

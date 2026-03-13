@@ -953,3 +953,106 @@ async def test_duplicate_video_tool_blocked_by_type_lock() -> None:
 
     assert len(orchestrator.video_calls) == 1
     assert orchestrator.video_calls[0]["scene_id"] == "scene-a"
+
+
+# ---------------------------------------------------------------------------
+# emotional_state_current — WS-FinalMile: risk_level "none" skips alerts store
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clinical_alert_none_risk_does_not_add_to_alerts_store(monkeypatch) -> None:
+    """risk_level='none' must NOT persist to store.alerts but MUST schedule extraction."""
+    from app.services.clinical_session_store import ClinicalSessionStore
+
+    fake_store = ClinicalSessionStore()
+    fake_store.register_session("s-happy")
+    monkeypatch.setattr(live_media_interceptor, "get_clinical_session_store", lambda: fake_store)
+
+    scheduled_calls: list[dict[str, Any]] = []
+
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None, session_id: str | None = None) -> asyncio.Task:
+        scheduled_calls.append({"alert_payload": alert_payload})
+
+        async def _noop() -> None:
+            await asyncio.sleep(0)
+
+        return asyncio.create_task(_noop())
+
+    monkeypatch.setattr(live_media_interceptor.clinical_extractor, "schedule_extraction", _schedule_extraction)
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "report_clinical_alert",
+                "args": {
+                    "primary_emotion": "happy",
+                    "trigger": "",
+                    "risk_level": "none",
+                    "recommended_strategy": "",
+                    "child_quote_summary": "",
+                },
+            }
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+        session_id="s-happy",
+    )
+
+    await _collect_events(stream)
+
+    # Alert must NOT appear in store
+    assert fake_store.get_alerts("s-happy") == []
+    # Extraction must still be scheduled (so emotional_state_current gets updated)
+    assert len(scheduled_calls) == 1
+    assert scheduled_calls[0]["alert_payload"]["primary_emotion"] == "happy"
+
+
+@pytest.mark.asyncio
+async def test_clinical_alert_nonzero_risk_still_adds_to_alerts_store(monkeypatch) -> None:
+    """risk_level != 'none' must still persist to store.alerts (existing behavior unchanged)."""
+    from app.services.clinical_session_store import ClinicalSessionStore
+
+    fake_store = ClinicalSessionStore()
+    fake_store.register_session("s-sad")
+    monkeypatch.setattr(live_media_interceptor, "get_clinical_session_store", lambda: fake_store)
+
+    def _schedule_extraction(*, alert_payload: dict, transcript_snapshot: dict | None = None, session_id: str | None = None) -> asyncio.Task:
+        async def _noop() -> None:
+            await asyncio.sleep(0)
+
+        return asyncio.create_task(_noop())
+
+    monkeypatch.setattr(live_media_interceptor.clinical_extractor, "schedule_extraction", _schedule_extraction)
+
+    base_stream = FakeBaseStream(
+        events=[
+            {
+                "type": "tool_call",
+                "tool": "report_clinical_alert",
+                "args": {
+                    "primary_emotion": "sadness",
+                    "trigger": "dark room",
+                    "risk_level": "low",
+                    "recommended_strategy": "comfort",
+                    "child_quote_summary": "The room is scary.",
+                },
+            }
+        ]
+    )
+    orchestrator = FakeOrchestrator()
+    stream = MediaToolCallInterceptingStream(
+        base_stream=base_stream,
+        media_orchestrator=orchestrator,
+        session_id="s-sad",
+    )
+
+    await _collect_events(stream)
+
+    alerts = fake_store.get_alerts("s-sad")
+    assert len(alerts) == 1
+    assert alerts[0]["primary_emotion"] == "sadness"
