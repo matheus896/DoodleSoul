@@ -69,19 +69,21 @@ def test_audit_event_schema_removes_nested_pii() -> None:
     assert "payload" not in payload["metadata"]["events"][0]
 
 
-def test_emit_audit_event_logs_json(caplog) -> None:
-    with caplog.at_level("INFO", logger="app.integrations.cloud_audit_logger"):
-        cloud_audit_logger.emit_audit_event(
-            session_id="s-123",
-            event_type="safety.pivot.triggered",
-            metadata={"trigger": "bad_topic", "action": "interrupt"}
-        )
-        
-    assert len(caplog.records) == 1
-    record = caplog.records[0]
-    
-    # Log message should be parseable JSON
-    data = json.loads(record.message)
+def test_emit_audit_event_logs_json(capsys) -> None:
+    # cloud_audit_logger uses propagate=False so its own StreamHandler writes directly
+    # to stderr — use capsys to capture what actually reaches Cloud Logging.
+    cloud_audit_logger.emit_audit_event(
+        session_id="s-123",
+        event_type="safety.pivot.triggered",
+        metadata={"trigger": "bad_topic", "action": "interrupt"}
+    )
+
+    captured = capsys.readouterr()
+    # emit_audit_event uses print() → captured on stdout as pure JSON for Cloud Logging
+    output = captured.out.strip()
+
+    # Emitted line must be parseable JSON (jsonPayload in Cloud Logging)
+    data = json.loads(output)
     assert data["session_id"] == "s-123"
     assert data["event_type"] == "safety.pivot.triggered"
     assert data["metadata"]["action"] == "interrupt"

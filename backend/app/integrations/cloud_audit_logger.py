@@ -68,5 +68,6 @@ def emit_audit_event(session_id: str, event_type: str, metadata: dict[str, Any] 
         event_type=event_type,
         metadata=metadata or {},
     )
-    # Output as JSON for Cloud Logging parsing
-    logger.info(json.dumps(event.to_dict()))
+    # print() writes to sys.stdout so Cloud Logging captures it as pure JSON (jsonPayload).
+    # logger.info() would add the app-level text formatter prefix, creating textPayload instead.
+    print(json.dumps(event.to_dict()), flush=True)

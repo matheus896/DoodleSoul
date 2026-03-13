@@ -84,8 +84,14 @@ export function useLiveInsights(
           if (payload.data.session_start_time) {
             setSessionStartTime(new Date(payload.data.session_start_time));
           }
-          setIsClosed(payload.data.is_closed === true);
+          const closed = payload.data.is_closed === true;
+          setIsClosed(closed);
           setEndedAt(payload.data.ended_at ? new Date(payload.data.ended_at) : null);
+          // Stop polling once backend confirms session is closed — no further state changes expected.
+          if (closed && intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
         } else {
           setStatus("error");
           setErrorMessage("Unexpected response from server.");
