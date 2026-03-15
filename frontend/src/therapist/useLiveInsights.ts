@@ -44,6 +44,22 @@ interface UseLiveInsightsReturn {
 
 const POLL_INTERVAL_MS = 3000;
 
+export function dedupeAlerts(alerts: ClinicalAlert[]): ClinicalAlert[] {
+  const seen = new Set<string>();
+  return alerts.filter((alert) => {
+    const fingerprint = [
+      alert.primary_emotion,
+      alert.trigger,
+      alert.risk_level,
+      alert.recommended_strategy,
+      alert.child_quote_summary,
+    ].join("\x00");
+    if (seen.has(fingerprint)) return false;
+    seen.add(fingerprint);
+    return true;
+  });
+}
+
 export function useLiveInsights(
   sessionId: string | null,
   apiBaseUrl?: string
@@ -77,7 +93,7 @@ export function useLiveInsights(
         }
         const payload = (await response.json()) as InsightsResponse;
         if (payload.status === "ok") {
-          setAlerts(payload.data.alerts ?? []);
+          setAlerts(dedupeAlerts(payload.data.alerts ?? []));
           setStatus("ok");
           setErrorMessage(null);
           setLastUpdated(new Date());
