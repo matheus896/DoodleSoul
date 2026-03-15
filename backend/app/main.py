@@ -51,6 +51,9 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="A(I)nimism Studio Backend", lifespan=lifespan)
 
+# Hackathon shortcut (demo UX): open CORS to simplify local frontend + Cloud Run.
+# Production posture: lock allow_origins to the deployed frontend URL
+# (for example via VITE_FRONTEND_URL) and keep explicit origin allowlists.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # hackathon demo — restrict in production

@@ -1052,7 +1052,13 @@ export default function ChildSessionPage() {
       await captureContext.audioWorklet.addModule(
         new URL("../audio/worklets/capture-worklet.ts", import.meta.url)
       );
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       const source = captureContext.createMediaStreamSource(stream);
       const captureNode = new AudioWorkletNode(captureContext, "capture-worklet");
       source.connect(captureNode);

@@ -43,8 +43,11 @@ async def inspect_and_redact(
         return DLPDecision(False, None, "dlp_redaction_discarded_policy")
 
     if mode == "cloud":
-        # Placeholder for Cloud Data Loss Prevention API integration
-        # For now, it fail-safes to local or raises explicitly if missing
+        # Hackathon transparency note:
+        # For time/quota reliability, "cloud" currently uses the same local
+        # simulated redaction path below. The architecture is intentionally
+        # adapter-shaped so production can swap in google-cloud-dlp via DI
+        # without changing callers or gatekeeper contract.
         pass
 
     # Basic local mock redaction

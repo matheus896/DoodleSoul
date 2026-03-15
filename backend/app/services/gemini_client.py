@@ -434,6 +434,7 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         "Use one stable scene_id, for example scene-1. "
         "After calling generate_image, wait for the system to confirm the image is ready before calling generate_video. "
         "You must call generate_video as a separate step, only after the child has seen and reacted to the image. "
+        "When you call generate_video, expect about 45 seconds to render. During this wait, you MUST keep the child engaged with playful questions, drawing details, or a short verbal game in character. "
         "You may call generate_video once for the same scene_id. "
         "If child intent is short or ambiguous, keep talking and ask a clarifying question instead of calling tools."
     )

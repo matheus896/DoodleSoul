@@ -181,6 +181,9 @@ async def start_session(request: StartSessionRequest):
     session_id = str(uuid4())
     consent_record = _consent_store.add(session_id)
     _session_grounding_store.register_session(session_id)
+    # Register clinical session at start so therapist polling does not return 404
+    # before websocket bootstrap wires the live bridge.
+    get_clinical_session_store().register_session(session_id)
     data = StartSessionData(
         session_id=session_id,
         consent_captured=True,
