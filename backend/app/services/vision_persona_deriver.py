@@ -20,20 +20,22 @@ VISION_TIMEOUT_SECONDS = 10.0
 PERSONA_PROMPT = """\
 You are a creative character designer for a children's therapy app.
 
-Analyze the child's drawing attached as an image. Based on the visual elements
-(colours, shapes, characters, patterns), derive a unique persona for an AI companion.
+Analyze ALL visual elements in the child's drawing attached as an image. Look carefully at colours, shapes, ALL characters, background objects, and the environment.
+Based on everything you see, derive a unique persona for an AI companion.
 
 Return ONLY a valid JSON object with exactly these fields:
 {
+  "drawing_summary": "A detailed 1-2 sentence description listing ALL key items, characters, and background elements found in the drawing.",
   "voice_traits": ["trait1", "trait2"],
   "personality_traits": ["trait1", "trait2"],
-    "greeting_text": "A short, warm greeting in English (max 2 sentences). If a child_name is provided, include it."
+  "greeting_text": "A short, warm greeting in English (max 2 sentences). You MUST explicitly mention multiple specific details from the drawing to show the child you see everything they drew. If a child_name is provided, include it."
 }
 
 Rules:
 - voice_traits: 2-4 descriptive adjectives for the character's voice (e.g. "cheerful", "gentle", "energetic").
 - personality_traits: 2-4 descriptive adjectives for the character's personality (e.g. "adventurous", "kind", "curious").
-- greeting_text: A warm greeting in English referencing something from the drawing. If the child's name is provided below, include it.
+- greeting_text: A warm greeting in English referencing multiple specific items from the drawing. If the child's name is provided below, include it.
+- drawing_summary: Must contain all elements visible in the drawing.
 - Do NOT wrap the JSON in markdown code fences.
 - Do NOT include any text outside the JSON object.
 """
@@ -43,6 +45,7 @@ class PersonaPayload(TypedDict):
     persona_source: str
     fallback_applied: bool
     fallback_reason: str | None
+    drawing_summary: str
     voice_traits: list[str]
     personality_traits: list[str]
     greeting_text: str
@@ -54,6 +57,7 @@ def _fallback_payload(reason: str) -> PersonaPayload:
         persona_source="fallback",
         fallback_applied=True,
         fallback_reason=reason,
+        drawing_summary="A child's imaginative drawing.",
         voice_traits=["gentle", "warm"],
         personality_traits=["calm", "supportive"],
         greeting_text="Hi, let's play together!",
@@ -119,8 +123,12 @@ class VisionPersonaDeriver:
         if child_context and child_context.get("child_name"):
             prompt_text += f"\nChild's name: {child_context['child_name']}"
 
+        img_b64 = drawing_image_base64
+        if img_b64.startswith("data:"):
+            img_b64 = img_b64.split(",", 1)[-1]
+
         image_part = types.Part.from_bytes(
-            data=__import__("base64").b64decode(drawing_image_base64),
+            data=__import__("base64").b64decode(img_b64),
             mime_type=drawing_mime_type,
         )
         text_part = types.Part.from_text(text=prompt_text)
@@ -142,12 +150,14 @@ class VisionPersonaDeriver:
             return _fallback_payload("derivation_parse_error")
 
         # Validate required fields
+        drawing_summary = parsed.get("drawing_summary")
         voice_traits = parsed.get("voice_traits")
         personality_traits = parsed.get("personality_traits")
         greeting_text = parsed.get("greeting_text")
 
         if (
-            not isinstance(voice_traits, list)
+            not isinstance(drawing_summary, str)
+            or not isinstance(voice_traits, list)
             or not isinstance(personality_traits, list)
             or not isinstance(greeting_text, str)
             or not voice_traits
@@ -161,6 +171,7 @@ class VisionPersonaDeriver:
             persona_source="drawing_derived",
             fallback_applied=False,
             fallback_reason=None,
+            drawing_summary=drawing_summary,
             voice_traits=voice_traits,
             personality_traits=personality_traits,
             greeting_text=greeting_text,

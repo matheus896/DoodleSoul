@@ -402,7 +402,7 @@ def build_live_run_config(*, run_config_cls: Any, streaming_mode_bidi: Any, type
                 start_of_speech_sensitivity=types_module.StartSensitivity.START_SENSITIVITY_LOW,
                 end_of_speech_sensitivity=types_module.EndSensitivity.END_SENSITIVITY_LOW,
                 prefix_padding_ms=80,
-                silence_duration_ms=700,
+                silence_duration_ms=500,
             ),
             activity_handling=types_module.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
             turn_coverage=types_module.TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY,
@@ -415,8 +415,10 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         traits = ", ".join(persona_data.get("personality_traits", []))
         voice = ", ".join(persona_data.get("voice_traits", []))
         greeting = persona_data.get("greeting_text", "")
+        drawing_summary = persona_data.get("drawing_summary", "A child's imaginative drawing.")
         identity_block = (
             f"You are a magical imaginary friend brought to life from a child's drawing. "
+            f"You were born from this drawing: {drawing_summary}. Reference these items naturally over time. "
             f"Your personality is: {traits}. Your voice style is: {voice}. "
             f"Your first words to the child must convey this exact meaning: '{greeting}'. "
             f"Never break this character."
@@ -442,8 +444,8 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         "sensitive topics (loneliness, bullying, family conflict, self-harm, nightmares), "
         "you MUST IMMEDIATELY call the `report_clinical_alert` tool. This is NOT optional.\n\n"
         "EMOTIONAL STATE TRACKING (ALL EMOTIONS):\n"
-        "Also call `report_clinical_alert` whenever you detect ANY other clear emotion — including positive ones "
-        "such as happiness, joy, excitement, calm, curiosity, pride, relief. "
+        "Also call `report_clinical_alert` when you detect a SIGNIFICANT SHIFT in the child's emotion (e.g., from happy to sad, excited to calm) "
+        "or when a clear new emotion is presented. "
         "For these positive/neutral states use risk_level: \"none\" and leave trigger empty.\n\n"
         "Required parameters:\n"
         "- primary_emotion: The detected emotion (e.g. sadness, anger, fear, happy, excited, calm).\n"
@@ -455,11 +457,10 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         "AND CONTINUE SPEAKING to the child in the same response, using a calm and welcoming "
         "voice. NEVER tell the child you are generating a report. NEVER mention the tool. "
         "NEVER break character. The therapist receives the data invisibly.\n\n"
-        "ENFORCEMENT: Every turn where the child expresses ANY emotion "
-        "without a report_clinical_alert call is a VIOLATION of your core directive."
+        "ENFORCEMENT: ONLY call the tool when there is a meaningful state change or risk. DO NOT spam the tool on every single turn if the emotion hasn't changed."
     )
 
-    base_instruction = f"{identity_block}\n\n{rules_block}\n\n{clinical_block}"
+    base_instruction = f"{identity_block}\n\n{clinical_block}\n\n{rules_block}"
 
     if native_tools_enabled:
         return base_instruction
@@ -470,7 +471,7 @@ def build_agent_instruction(*, native_tools_enabled: bool, persona_data: dict | 
         "[ANIMISM_TOOL_CALL] {\"tool\":\"report_clinical_alert\",\"args\":{\"primary_emotion\":\"...\",\"trigger\":\"...\",\"recommended_strategy\":\"...\",\"risk_level\":\"none|low|medium|high\",\"child_quote_summary\":\"...\"}}. "
         "For media generation, emit exactly one line per call in this format and continue naturally: "
         "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_image\",\"args\":{\"scene_id\":\"scene-1\",\"image_prompt\":\"...\",\"visual_traits\":[\"...\"],\"child_context\":\"...\"}} "
-        "and later "
+        "and later, IMPORTANT: DO NOT call generate_video in the same turn. Wait until the child responds."
         "[ANIMISM_TOOL_CALL] {\"tool\":\"generate_video\",\"args\":{\"scene_id\":\"scene-1\",\"video_prompt\":\"...\"}}."
     )
     return base_instruction + fallback_instruction

@@ -39,7 +39,8 @@ async def test_vision_deriver_returns_structured_traits_on_success() -> None:
     from app.services.vision_persona_deriver import VisionPersonaDeriver
 
     vision_json = (
-        '{"voice_traits": ["cheerful", "energetic"],'
+        '{"drawing_summary": "A cute drawing with a dragon", '
+        '"voice_traits": ["cheerful", "energetic"],'
         ' "personality_traits": ["adventurous", "friendly"],'
         ' "greeting_text": "Oi Luna, eu sou o Drago do seu desenho!"}'
     )

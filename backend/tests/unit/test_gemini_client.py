@@ -319,7 +319,7 @@ def test_build_live_run_config_sets_conservative_realtime_input_config() -> None
     assert automatic_activity_detection.start_of_speech_sensitivity == "start_low"
     assert automatic_activity_detection.end_of_speech_sensitivity == "end_low"
     assert automatic_activity_detection.prefix_padding_ms == 80
-    assert automatic_activity_detection.silence_duration_ms == 700
+    assert automatic_activity_detection.silence_duration_ms == 500
     assert realtime_input_config.activity_handling == "interrupt"
     assert realtime_input_config.turn_coverage == "activity_only"
 
@@ -595,7 +595,7 @@ def test_build_agent_instruction_clinical_alert_is_silent_from_child() -> None:
 def test_build_agent_instruction_clinical_continues_in_character_after_alert() -> None:
     instruction = build_agent_instruction(native_tools_enabled=True)
     assert "MUST IMMEDIATELY call" in instruction
-    assert "VIOLATION" in instruction
+    assert "ONLY call the tool when there is a meaningful state change" in instruction
     assert "CONTINUE SPEAKING" in instruction
 
 
