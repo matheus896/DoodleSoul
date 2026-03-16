@@ -1,0 +1,30 @@
+steps:
+  # 1. Build Backend Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/animism-backend', './backend']
+
+  # 2. Push image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/animism-backend']
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'animism-epic1-backend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/animism-backend'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      # Ensure critical environment variables exist (Core Reliability)
+      - '--update-env-vars'
+      - 'ANIMISM_ADK_TOOL_MODE=text_fallback,ANIMISM_LIVE_MODE=adk'
+
+# Logging options for easier debugging in GCP Console
+options:
+  logging: CLOUD_LOGGING_ONLY

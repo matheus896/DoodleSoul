@@ -61,8 +61,8 @@ As per the hackathon rules (**"URL to your Public Code Repository"**), the follo
 
 ### 2. Repository & Environment
 ```bash
-git clone https://github.com/matheus896/hackaton-google.git
-cd hackaton-google
+git clone https://github.com/matheus896/DoodleSoul.git
+cd DoodleSoul
 ```
 Create a `.env` file in the **root** and the **backend/** directory with your key:
 ```env
@@ -71,11 +71,6 @@ ANIMISM_LIVE_MODE="adk"
 ANIMISM_ADK_TOOL_MODE="text_fallback"
 ANIMISM_DEBUG_MEDIA=0 # or 1 to enable media debug
 ANIMISM_LOG_LEVEL=INFO
-
-# local test
-ANIMISM_ASSET_BASE_URL=http://localhost:8000
-# cloud test
-ANIMISM_ASSET_BASE_URL=https://animism-epic1-backend-pfxacy7otq-uc.a.run.app
 ```
 
 ### 3. Backend Setup
@@ -84,7 +79,7 @@ We recommend using `uv` for lightning-fast dependency management:
 cd backend
 pip install uv  # if not installed
 uv pip install -r requirements.txt
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload # local test
 ```
 
 ### 4. Frontend Setup
@@ -94,6 +89,39 @@ npm install
 npm run dev
 ```
 **Access the platform at**: `http://localhost:5173/demo`
+
+---
+
+## 🚦 Navigation & Roles
+
+DoodleSoul provides three primary entry points depending on the user role:
+
+| Route | View | Purpose |
+| :--- | :--- | :--- |
+| `/demo` | **Unified View** | **Recommended for Judges.** Renders the Child Session and Therapist Dashboard side-by-side. Automatically syncs the `session_id` between views via `localStorage`. |
+| `/session` | **Child View** | The main interface. Used in isolation for the patient's "Adventure" session. |
+| `/therapist/live` | **Therapist View** | Real-time clinical monitoring. Resolves the active session via `?session_id=` or `localStorage`. Displays "Silent Alerts" and emotional state KPIs. |
+
+---
+
+## ☁️ Cloud Deployment & Evidence
+
+### 1. Automated Deployment
+The project includes a `cloudbuild.yaml` for serverless deployment to **Google Cloud Run**.
+
+**Command (PowerShell):**
+```powershell
+.\scripts\deploy_cloud.ps1 -ProjectId "YOUR_PROJECT_ID"
+```
+
+### 2. Evidence Collection (Audit Logs)
+To prove the backend is running on Google Cloud and capture the "Silent Alarm" events, use the evidence collection script. It queries **Cloud Logging** for canonical audit events (`session_started`, `dlp_redaction_applied`, etc.) and generates a JSON evidence file.
+
+**Command (PowerShell):**
+```powershell
+.\scripts\collect_epic5_evidence.ps1 -ProjectId "YOUR_PROJECT_ID" -ServiceName "YOUR_SERVICE_NAME"
+```
+_The script automatically detects the latest session ID if not provided._
 
 ---
 

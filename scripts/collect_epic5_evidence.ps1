@@ -25,9 +25,22 @@ $revision = $serviceJson.status.latestReadyRevisionName
 if (-not $serviceUrl -or -not $revision) {
   throw "Could not resolve service URL or revision for service '$ServiceName'."
 }
-
 Write-Host "Service URL: $serviceUrl"
 Write-Host "Revision: $revision"
+
+if (-not $SessionId) {
+    Write-Host "[1.5/4] SessionId not provided. Searching for the latest 'session_started' event..."
+    # Query for the most recent session_started event for this service
+    $discoveryFilter = "resource.type=cloud_run_revision AND resource.labels.service_name=$ServiceName AND jsonPayload.event_type=session_started"
+    $latestSessionLog = gcloud logging read $discoveryFilter --project $ProjectId --limit 1 --format="value(jsonPayload.session_id)"
+    
+    if ($latestSessionLog) {
+        $SessionId = $latestSessionLog.Trim()
+        Write-Host "Auto-detected SessionId: $SessionId"
+    } else {
+        throw "No 'session_started' events found in the last $Lookback. Please provide a SessionId manually or increase -Lookback."
+    }
+}
 
 Write-Host "[2/4] Verifying HTTPS endpoint responds..."
 try {
@@ -42,7 +55,7 @@ try {
 }
 Write-Host "HTTPS status: $httpsStatus"
 
-Write-Host "[3/4] Building log filter for canonical Epic 5 audit events..."
+Write-Host "[3/4] Building log filter for canonical audit events..."
 $baseFilter = @(
   'resource.type="cloud_run_revision"',
   ('resource.labels.service_name="' + $ServiceName + '"'),
@@ -56,10 +69,10 @@ if ($SessionId) {
 Write-Host "[4/4] Querying Cloud Logging (lookback: $Lookback)..."
 $logsJson = gcloud logging read $baseFilter --project $ProjectId --freshness $Lookback --limit 50 --format json
 
-$outputDir = Join-Path $PSScriptRoot "..\_bmad-output\implementation-artifacts"
+$outputDir = Join-Path $PSScriptRoot "..\evidence"
 $outputDir = (Resolve-Path $outputDir).Path
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$outputPath = Join-Path $outputDir ("epic5-evidence-" + $timestamp + ".json")
+$outputPath = Join-Path $outputDir ("evidence-logs" + $timestamp + ".json")
 
 $evidence = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
