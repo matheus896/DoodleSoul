@@ -24,6 +24,9 @@ steps:
       # Ensure critical environment variables exist (Core Reliability)
       - '--update-env-vars'
       - 'ANIMISM_ADK_TOOL_MODE=text_fallback,ANIMISM_LIVE_MODE=adk'
+      # Inject GOOGLE_API_KEY securely from Secret Manager (secret name: GOOGLE_API_KEY)
+      - '--set-secrets'
+      - 'GOOGLE_API_KEY=GOOGLE_API_KEY:latest'
 
 # Logging options for easier debugging in GCP Console
 options:

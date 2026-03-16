@@ -24,8 +24,6 @@
 
 **Developed for the #GeminiLiveAgentChallenge**
 
-**[🇧🇷 Leia o Blog Post Técnico (PT)](./Blog-post.md) | [🇺🇸 Read the Technical Deep Dive (EN)](./Blog-post-EN.md)**
-
 </div>
 
 ---
